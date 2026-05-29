@@ -5,3 +5,8 @@ vite.config.js
 vite.config.d.ts
 _tmp_*/
 _tmp_*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+data/

@@ -1,4 +1,4 @@
-import { Bell, LineChart, Search } from "lucide-react";
+import { LineChart, Search } from "lucide-react";
 import type { ReactNode } from "react";
 
 type AppShellProps = {
@@ -14,22 +14,18 @@ export function AppShell({ children }: AppShellProps) {
             <LineChart size={15} strokeWidth={2.4} />
           </span>
           QuantLab
-          <span className="tag">v0.4 - sim</span>
+          <span className="tag">local</span>
         </div>
 
         <nav className="topnav" aria-label="Primary">
-          <a className="active">Labs</a>
-          <a>New backtest</a>
-          <a>Screener</a>
+          <a className="active">Experiments</a>
+          <a>Data</a>
           <a>Docs</a>
         </nav>
 
         <span className="spacer" />
         <button className="iconbtn" title="Search labs">
           <Search size={17} />
-        </button>
-        <button className="iconbtn" title="Notifications">
-          <Bell size={17} />
         </button>
         <div className="avatar" title="You">
           QL

@@ -2,7 +2,7 @@
 type: log
 status: active
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-05-29
 sources: []
 tags:
   - quant-lab
@@ -27,3 +27,13 @@ Append-only timeline. Keep entry headings parseable:
 - Added product vision source summary.
 - Added MVP roadmap, product architecture, and research cockpit UX syntheses.
 - Updated overview, index, and open questions.
+
+## [2026-05-29] query | Experiment Creation Contract
+
+- Added experiment creation contract for form fields, backend-generated fields, and JSON import/export behavior.
+- Updated wiki index.
+
+## [2026-05-29] query | Executable Strategy Program
+
+- Added executable `strategy_program` contract to experiment creation documentation.
+- Documented supported blocks, validation rules, and interpreter output.

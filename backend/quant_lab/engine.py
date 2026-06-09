@@ -10,10 +10,12 @@ from .domain import (
     BacktestResult,
     Bar,
     BenchmarkPoint,
+    CashPolicy,
     CostModel,
     DomainError,
     Experiment,
     ExperimentStatus,
+    ExecutionTiming,
     Fill,
     Frequency,
     MetricSet,
@@ -102,11 +104,14 @@ def _simulate(
 ) -> dict[str, Any]:
     prices: dict[str, dict[date, float]] = {
         symbol: {
-            bar.as_of: (
-                bar.adjusted_close
-                if config.use_adjusted and bar.adjusted_close is not None
-                else bar.close
-            )
+            bar.as_of: _bar_price(bar, config)
+            for bar in bars
+        }
+        for symbol, bars in market_data.items()
+    }
+    trade_prices: dict[str, dict[date, float]] = {
+        symbol: {
+            bar.as_of: (bar.open if config.execution_timing is ExecutionTiming.NEXT_OPEN else _bar_price(bar, config))
             for bar in bars
         }
         for symbol, bars in market_data.items()
@@ -116,12 +121,12 @@ def _simulate(
     )
 
     cash = config.initial_capital
-    positions: dict[str, float] = {}  # symbol → shares
+    positions: dict[str, float] = {}  # symbol -> shares
     snapshots: list[PortfolioSnapshot] = []
     fills: list[Fill] = []
     peak_equity = config.initial_capital
 
-    target_map = {tw.as_of: tw for tw in targets}
+    target_map = _execution_target_map(targets, all_dates, config)
     current_target: TargetWeights | None = None
     current_weights: dict[str, float] = {}  # last known target weights for cash yield
 
@@ -134,7 +139,7 @@ def _simulate(
             current_target = target_map[as_of]
 
         if current_target is None:
-            # Before first signal — stay in cash
+            # Before first signal - stay in cash
             equity = cash + _positions_value(positions, prices, as_of)
             peak_equity = max(peak_equity, equity)
             snapshots.append(_snapshot(as_of, cash, positions, prices, peak_equity))
@@ -142,12 +147,12 @@ def _simulate(
 
         equity = cash + _positions_value(positions, prices, as_of)
 
-        # Only rebalance on signal days — eliminates noise fills between rebalances
+        # Only rebalance on signal days - eliminates noise fills between rebalances
         if is_rebalance_day:
-            current_weights = dict(current_target.weights)
+            current_weights = _effective_weights(current_target, config, trade_prices, as_of)
 
             for symbol, target_weight in current_weights.items():
-                price = prices.get(symbol, {}).get(as_of)
+                price = trade_prices.get(symbol, {}).get(as_of)
                 if price is None:
                     continue
                 target_value = equity * target_weight
@@ -156,32 +161,59 @@ def _simulate(
                 delta_value = target_value - current_value
                 if abs(delta_value) < max(1.0, equity * 0.001):
                     continue
-                shares_delta = delta_value / price
+                side = OrderSide.BUY if delta_value > 0 else OrderSide.SELL
+                fill_price = _fill_price(price, side, config.cost_model)
+                shares_delta = delta_value / fill_price
                 cost = _trade_cost(abs(delta_value), config.cost_model)
                 if shares_delta > 0:
-                    fills.append(Fill(symbol=symbol, as_of=as_of, side=OrderSide.BUY, quantity=shares_delta, price=price, commission=cost))
+                    fills.append(Fill(
+                        symbol=symbol,
+                        as_of=as_of,
+                        side=OrderSide.BUY,
+                        quantity=shares_delta,
+                        price=fill_price,
+                        commission=cost,
+                        slippage=abs(fill_price - price) * shares_delta,
+                    ))
                     positions[symbol] = current_shares + shares_delta
-                    cash -= delta_value + cost
+                    cash -= shares_delta * fill_price + cost
                 else:
-                    fills.append(Fill(symbol=symbol, as_of=as_of, side=OrderSide.SELL, quantity=abs(shares_delta), price=price, commission=cost))
+                    fills.append(Fill(
+                        symbol=symbol,
+                        as_of=as_of,
+                        side=OrderSide.SELL,
+                        quantity=abs(shares_delta),
+                        price=fill_price,
+                        commission=cost,
+                        slippage=abs(fill_price - price) * abs(shares_delta),
+                    ))
                     positions[symbol] = current_shares + shares_delta
-                    cash -= delta_value - cost
+                    cash += abs(shares_delta) * fill_price - cost
 
-            # Liquidate positions not in current target
-            if current_target.cash > 0:
-                for symbol in list(positions):
-                    if symbol not in current_weights or current_weights[symbol] == 0:
-                        price = prices.get(symbol, {}).get(as_of)
-                        if price and positions.get(symbol, 0) > 0:
-                            qty = positions[symbol]
-                            value = qty * price
-                            cost = _trade_cost(value, config.cost_model)
-                            fills.append(Fill(symbol=symbol, as_of=as_of, side=OrderSide.SELL, quantity=qty, price=price, commission=cost))
-                            cash += value - cost
-                            positions[symbol] = 0.0
+            # Liquidate positions no longer in target.
+            for symbol in list(positions):
+                if symbol not in current_weights or current_weights[symbol] == 0:
+                    price = prices.get(symbol, {}).get(as_of)
+                    trade_price = trade_prices.get(symbol, {}).get(as_of)
+                    if price and trade_price and positions.get(symbol, 0) > 0:
+                        qty = positions[symbol]
+                        fill_price = _fill_price(trade_price, OrderSide.SELL, config.cost_model)
+                        value = qty * fill_price
+                        cost = _trade_cost(value, config.cost_model)
+                        fills.append(Fill(
+                            symbol=symbol,
+                            as_of=as_of,
+                            side=OrderSide.SELL,
+                            quantity=qty,
+                            price=fill_price,
+                            commission=cost,
+                            slippage=abs(fill_price - trade_price) * qty,
+                        ))
+                        cash += value - cost
+                        positions[symbol] = 0.0
 
         # Cash yield (daily accrual on true cash balance)
-        if config.risk_free_rate > 0:
+        if config.cash_policy is CashPolicy.RISK_FREE_PROXY and config.risk_free_rate > 0:
             daily_rate = (1 + config.risk_free_rate) ** (1 / 252) - 1
             invested = sum(
                 positions.get(s, 0) * (prices.get(s, {}).get(as_of) or 0)
@@ -198,6 +230,40 @@ def _simulate(
     return {"snapshots": snapshots, "fills": fills}
 
 
+def _effective_weights(
+    target: TargetWeights,
+    config: BacktestConfig,
+    prices: dict[str, dict[date, float]],
+    as_of: date,
+) -> dict[str, float]:
+    weights = dict(target.weights)
+    if target.cash <= 0:
+        return weights
+    if config.cash_policy is CashPolicy.BENCHMARK_ASSET:
+        if prices.get(config.benchmark, {}).get(as_of) is None:
+            raise DomainError("Benchmark asset cash policy requires benchmark market data")
+        weights[config.benchmark] = weights.get(config.benchmark, 0.0) + target.cash
+    return weights
+
+
+def _execution_target_map(
+    targets: list[TargetWeights],
+    all_dates: list[date],
+    config: BacktestConfig,
+) -> dict[date, TargetWeights]:
+    if config.execution_timing is ExecutionTiming.SAME_CLOSE:
+        return {tw.as_of: tw for tw in targets}
+
+    target_map: dict[date, TargetWeights] = {}
+    date_index = {as_of: index for index, as_of in enumerate(all_dates)}
+    for target in targets:
+        index = date_index.get(target.as_of)
+        if index is None or index + 1 >= len(all_dates):
+            continue
+        target_map[all_dates[index + 1]] = target
+    return target_map
+
+
 def _positions_value(positions: dict[str, float], prices: dict[str, dict[date, float]], as_of: date) -> float:
     total = 0.0
     for symbol, shares in positions.items():
@@ -208,8 +274,15 @@ def _positions_value(positions: dict[str, float], prices: dict[str, dict[date, f
 
 
 def _trade_cost(value: float, cost_model: CostModel) -> float:
-    bps_cost = value * (cost_model.commission_bps + cost_model.slippage_bps) / 10_000
+    bps_cost = value * cost_model.commission_bps / 10_000
     return max(bps_cost, cost_model.min_commission)
+
+
+def _fill_price(mid_price: float, side: OrderSide, cost_model: CostModel) -> float:
+    slippage = cost_model.slippage_bps / 10_000
+    if side is OrderSide.BUY:
+        return mid_price * (1 + slippage)
+    return mid_price * (1 - slippage)
 
 
 def _snapshot(
@@ -260,7 +333,8 @@ def _compute_metrics(
 
     total_traded = sum(f.quantity * f.price for f in fills)
     avg_equity = _mean(equities) if equities else 1.0
-    turnover = total_traded / avg_equity if avg_equity > 0 else 0.0
+    lifetime_turnover = total_traded / avg_equity if avg_equity > 0 else 0.0
+    turnover = lifetime_turnover / years if years > 0 else 0.0
 
     avg_exposure = _mean([s.exposure for s in snapshots])
 
@@ -270,7 +344,7 @@ def _compute_metrics(
     bench_symbol = config.benchmark
     bench_bars = market_data.get(bench_symbol)
     if bench_bars:
-        bench_prices = {bar.as_of: bar.close for bar in bench_bars}
+        bench_prices = {bar.as_of: _bar_price(bar, config) for bar in bench_bars}
         start_dates = [s.as_of for s in snapshots]
         if start_dates:
             b_start = bench_prices.get(start_dates[0])
@@ -303,7 +377,7 @@ def _risk_warnings(
         warnings.append(RiskWarning(
             code="short_window",
             severity=WarningSeverity.CAUTION,
-            message=f"Backtest window is {n_years:.1f} years — too short for statistical confidence.",
+            message=f"Backtest window is {n_years:.1f} years - too short for statistical confidence.",
             evidence={"years": round(n_years, 2)},
         ))
     if metrics.max_drawdown < -0.4:
@@ -320,6 +394,34 @@ def _risk_warnings(
             message=f"Annualised turnover ratio {metrics.turnover:.1f}x is high.",
             evidence={"turnover": round(metrics.turnover, 2)},
         ))
+    if config.oos_start_date is None:
+        warnings.append(RiskWarning(
+            code="no_oos_split",
+            severity=WarningSeverity.CAUTION,
+            message="No out-of-sample split configured.",
+            evidence={},
+        ))
+    total_cost_bps = config.cost_model.commission_bps + config.cost_model.slippage_bps
+    if total_cost_bps >= 10:
+        warnings.append(RiskWarning(
+            code="high_cost_assumption",
+            severity=WarningSeverity.CAUTION,
+            message=f"Trading friction assumption is {total_cost_bps:.1f} bps per trade.",
+            evidence={"cost_bps": round(total_cost_bps, 2)},
+        ))
+    if not config.use_adjusted:
+        warnings.append(RiskWarning(
+            code="raw_prices",
+            severity=WarningSeverity.DANGER,
+            message="Raw close ignores splits and dividends.",
+            evidence={},
+        ))
+    warnings.append(RiskWarning(
+        code="survivorship_user_universe",
+        severity=WarningSeverity.INFO,
+        message="Universe is user-selected, not point-in-time survivorship-safe.",
+        evidence={},
+    ))
     return warnings
 
 
@@ -331,7 +433,7 @@ def _benchmark_curve(
     bench_bars = market_data.get(config.benchmark)
     if not bench_bars or not snapshots:
         return ()
-    bench_prices = {bar.as_of: bar.close for bar in bench_bars}
+    bench_prices = {bar.as_of: _bar_price(bar, config) for bar in bench_bars}
     snap_dates = [s.as_of for s in snapshots]
     b_start = bench_prices.get(snap_dates[0])
     if not b_start or b_start <= 0:
@@ -347,6 +449,12 @@ def _benchmark_curve(
     return tuple(points)
 
 
+def _bar_price(bar: Bar, config: BacktestConfig) -> float:
+    if config.use_adjusted and bar.adjusted_close is not None:
+        return bar.adjusted_close
+    return bar.close
+
+
 def _data_gap_warnings(
     market_data: Mapping[str, tuple[Bar, ...]],
     config: BacktestConfig,
@@ -359,7 +467,7 @@ def _data_gap_warnings(
             warnings.append(RiskWarning(
                 code=f"sparse_data_{symbol.lower()}",
                 severity=WarningSeverity.CAUTION,
-                message=f"{symbol} has only {actual} of ~{expected} expected bars — possible data gap.",
+                message=f"{symbol} has only {actual} of ~{expected} expected bars - possible data gap.",
                 evidence={"symbol": symbol, "bars": actual, "expected": expected},
             ))
     return warnings

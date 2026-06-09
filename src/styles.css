@@ -2053,7 +2053,7 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
 }
 
-/* ─── Results panel ─────────────────────────────────────────────────────── */
+/* --- Results panel ------------------------------------------------------- */
 
 .results-panel {
   display: grid;
@@ -2062,6 +2062,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .metrics-section,
+.assumptions-section,
+.provenance-section,
 .chart-section,
 .warnings-section {
   padding-bottom: 24px;
@@ -2089,6 +2091,61 @@ input[type="range"]::-webkit-slider-thumb {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.assumption-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.assumption-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.assumption-item span {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.assumption-item strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.provenance-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.provenance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.provenance-table th,
+.provenance-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.provenance-table th {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.provenance-table tr:last-child td {
+  border-bottom: none;
 }
 
 .metric-card {
@@ -2169,7 +2226,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 11.5px;
 }
 
-/* ─── Standalone color helpers ──────────────────────────────────────────── */
+/* --- Standalone color helpers -------------------------------------------- */
 
 .pos {
   color: #4cdf88;
@@ -2179,7 +2236,7 @@ input[type="range"]::-webkit-slider-thumb {
   color: #ff5e5e;
 }
 
-/* ─── Equity chart ───────────────────────────────────────────────────────── */
+/* --- Equity chart --------------------------------------------------------- */
 
 .chart-header {
   display: flex;
@@ -2242,7 +2299,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 11px;
 }
 
-/* ─── Warnings ───────────────────────────────────────────────────────────── */
+/* --- Warnings ------------------------------------------------------------- */
 
 .warnings-list {
   display: grid;
@@ -2282,7 +2339,7 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-2);
 }
 
-/* ─── Run CTA / error ────────────────────────────────────────────────────── */
+/* --- Run CTA / error ------------------------------------------------------ */
 
 .run-cta {
   display: flex;
@@ -2309,7 +2366,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
 }
 
-/* ─── Spin animation ─────────────────────────────────────────────────────── */
+/* --- Spin animation ------------------------------------------------------- */
 
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -2319,7 +2376,7 @@ input[type="range"]::-webkit-slider-thumb {
   animation: spin 0.9s linear infinite;
 }
 
-/* ─── Active tab button ──────────────────────────────────────────────────── */
+/* --- Active tab button ---------------------------------------------------- */
 
 .btn.active-tab {
   border-color: rgba(77, 155, 255, 0.4);
@@ -2328,7 +2385,7 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 0 0 3px rgba(77, 155, 255, 0.08);
 }
 
-/* ─── Status chip in table ───────────────────────────────────────────────── */
+/* --- Status chip in table ------------------------------------------------- */
 
 .status-chip {
   display: inline-block;
@@ -2360,14 +2417,14 @@ input[type="range"]::-webkit-slider-thumb {
   color: #ff5e5e;
 }
 
-/* ─── Workbench head flex fix ────────────────────────────────────────────── */
+/* --- Workbench head flex fix ---------------------------------------------- */
 
 .workbench-head-info {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-/* ─── Action separator ───────────────────────────────────────────────────── */
+/* --- Action separator ----------------------------------------------------- */
 
 .action-sep {
   width: 1px;
@@ -2439,7 +2496,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-/* ─── Fills table ─────────────────────────────────────────────────────────── */
+/* --- Fills table ----------------------------------------------------------- */
 
 .fills-section {
   margin-top: 20px;
@@ -2498,7 +2555,7 @@ input[type="range"]::-webkit-slider-thumb {
   text-align: center;
 }
 
-/* ─── Comparison screen ───────────────────────────────────────────────────── */
+/* --- Comparison screen ----------------------------------------------------- */
 
 .comparison-screen .workbench-head {
   border-bottom: 1px solid var(--line);
@@ -2553,7 +2610,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-bottom: 0;
 }
 
-/* ─── Search input ────────────────────────────────────────────────────────── */
+/* --- Search input ---------------------------------------------------------- */
 
 .search-input {
   padding: 6px 12px;
@@ -2571,7 +2628,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: var(--accent);
 }
 
-/* ─── OOS panel ──────────────────────────────────────────────────────────── */
+/* --- OOS panel ------------------------------------------------------------ */
 
 .oos-section {
   margin-bottom: 20px;
@@ -2629,7 +2686,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .oos-table tr:last-child td { border-bottom: 0; }
 
-/* ─── Attribution chart ──────────────────────────────────────────────────── */
+/* --- Attribution chart ---------------------------------------------------- */
 
 .attribution-section {
   margin-bottom: 20px;
@@ -2685,7 +2742,7 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 72px;
 }
 
-/* ─── Sweep panel ────────────────────────────────────────────────────────── */
+/* --- Sweep panel ---------------------------------------------------------- */
 
 .sweep-panel {
   padding: 24px;
@@ -2761,7 +2818,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 0;
 }
 
-/* ─── Print / PDF export ─────────────────────────────────────────────────── */
+/* --- Print / PDF export --------------------------------------------------- */
 
 @media print {
   body { background: white; color: #111; overflow: auto; }

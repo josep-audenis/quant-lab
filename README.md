@@ -18,3 +18,19 @@ This repo includes an LLM-maintained wiki pattern:
 - `wiki/index.md` is the content catalog.
 - `wiki/log.md` is the append-only activity timeline.
 - `AGENTS.md` defines ingest, query, and lint workflows for future agent sessions.
+
+## Local development
+
+Edit `.env` if you want custom ports.
+
+Backend:
+
+```bash
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8011
+```
+
+Frontend:
+
+```bash
+pnpm dev -- --host 127.0.0.1 --port 5173
+```

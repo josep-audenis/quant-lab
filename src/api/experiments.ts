@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8011";
 
 export type PortfolioSnapshot = {
   as_of: string;
@@ -54,9 +54,46 @@ export type SweepResult = {
   sweep: SweepPoint[];
 };
 
+export type BacktestConfigSummary = {
+  start_date: string;
+  end_date: string;
+  initial_capital: number;
+  benchmark: string;
+  frequency: string;
+  rebalance_frequency: string;
+  use_adjusted: boolean;
+  oos_start_date: string | null;
+  execution_timing: string;
+  cost_model: {
+    commission_bps: number;
+    slippage_bps: number;
+    min_commission: number;
+  };
+  cash_policy: string;
+  risk_free_rate: number;
+};
+
 export type BacktestResult = {
   run_id: string;
   generated_at: string;
+  config: BacktestConfigSummary;
+  provenance: {
+    data: Array<{
+      symbol: string;
+      source: string;
+      adjustment: string;
+      requested_start: string;
+      requested_end: string;
+      actual_start: string;
+      actual_end: string;
+      fetched_at: string;
+      bar_count: number;
+      expected_bars: number;
+      missing_bars: number;
+      cache_key: string | null;
+      cache_hash: string | null;
+    }>;
+  };
   metrics: MetricSet;
   equity_curve: PortfolioSnapshot[];
   fills: Fill[];
@@ -71,23 +108,7 @@ export type ExperimentSummary = {
   status: string;
   hypothesis?: string | null;
   notes?: string | null;
-  backtest: {
-    start_date: string;
-    end_date: string;
-    initial_capital: number;
-    benchmark: string;
-    frequency: string;
-    rebalance_frequency: string;
-    use_adjusted: boolean;
-    oos_start_date: string | null;
-    cost_model: {
-      commission_bps: number;
-      slippage_bps: number;
-      min_commission: number;
-    };
-    cash_policy: string;
-    risk_free_rate: number;
-  };
+  backtest: BacktestConfigSummary;
   created_at: string;
   updated_at: string;
   strategy: {
@@ -144,6 +165,7 @@ export type DraftExperimentPayload = {
   notes: string;
   use_adjusted: boolean;
   oos_start_date: string;
+  execution_timing: string;
 };
 
 export async function createDraftExperiment(

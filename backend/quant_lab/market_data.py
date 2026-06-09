@@ -52,7 +52,7 @@ class MarketDataFetcher:
 
 
 def _download(symbol: str, start: date, end: date) -> MarketDataSeries:
-    # yfinance end date is exclusive — add one day to include the end date
+    # yfinance end date is exclusive - add one day to include the end date
     fetch_end = end + timedelta(days=1)
     raw: pd.DataFrame = yf.download(
         symbol,
@@ -64,7 +64,7 @@ def _download(symbol: str, start: date, end: date) -> MarketDataSeries:
     if raw.empty:
         raise DomainError(f"No market data returned for {symbol}")
 
-    # Flatten MultiIndex columns if present (yfinance ≥ 0.2.x with single ticker)
+    # Flatten MultiIndex columns if present (yfinance >= 0.2.x with single ticker)
     if isinstance(raw.columns, pd.MultiIndex):
         raw.columns = raw.columns.get_level_values(0)
 

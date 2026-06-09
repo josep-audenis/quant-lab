@@ -122,7 +122,7 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onRun, 
             onClick={() => void handleRun()}
           >
             {running ? <Loader size={15} className="spin" /> : <Play size={15} />}
-            {running ? `${runStage || "Running…"} ${elapsed.toFixed(1)}s` : "Run backtest"}
+            {running ? `${runStage || "Running..."} ${elapsed.toFixed(1)}s` : "Run backtest"}
           </button>
 
           {hasResult && (
@@ -276,6 +276,7 @@ function ExperimentDetail({
   running: boolean;
 }) {
   const blocks = experiment.strategy_program?.blocks ?? [];
+  const healthFlags = preRunHealthFlags(experiment);
   return (
     <section className="detail-screen">
       <div className="detail-grid">
@@ -306,7 +307,7 @@ function ExperimentDetail({
             <div>
               <dt>Window</dt>
               <dd>
-                {experiment.backtest.start_date} → {experiment.backtest.end_date}
+                {experiment.backtest.start_date} {"->"} {experiment.backtest.end_date}
               </dd>
             </div>
             <div>
@@ -317,9 +318,33 @@ function ExperimentDetail({
               <dt>Benchmark</dt>
               <dd>{experiment.backtest.benchmark}</dd>
             </div>
+            <div>
+              <dt>Execution</dt>
+              <dd>{executionLabel(experiment.backtest.execution_timing)}</dd>
+            </div>
+            <div>
+              <dt>Cash</dt>
+              <dd>{cashPolicyLabel(experiment.backtest.cash_policy, experiment.backtest.risk_free_rate)}</dd>
+            </div>
+            <div>
+              <dt>Turnover</dt>
+              <dd>Annualized</dd>
+            </div>
           </dl>
         </div>
       </div>
+      {healthFlags.length > 0 && (
+        <section className="detail-card">
+          <p className="eyebrow">Pre-run data health</p>
+          <div className="warnings-list">
+            {healthFlags.map((flag) => (
+              <div className={`warning-chip sev-${flag.severity}`} key={flag.code}>
+                <span>{flag.message}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="detail-card">
         <p className="eyebrow">Rule blocks</p>
         <div className="block-list">
@@ -336,7 +361,7 @@ function ExperimentDetail({
           <p>No results yet. Run the backtest to simulate this strategy against historical data.</p>
           <button className="btn primary lg" disabled={running} onClick={onRun}>
             {running ? <Loader size={15} className="spin" /> : <Play size={15} />}
-            {running ? "Running…" : "Run backtest"}
+            {running ? "Running..." : "Run backtest"}
           </button>
         </div>
       )}
@@ -344,7 +369,7 @@ function ExperimentDetail({
   );
 }
 
-// ─── Sweep panel ─────────────────────────────────────────────────────────────
+// --- Sweep panel -------------------------------------------------------------
 
 const SWEEP_PARAMS: Record<string, Array<{ key: string; label: string; defaultValues: string }>> = {
   moving_average_filter: [{ key: "window", label: "MA window", defaultValues: "50,100,150,200,250,300" }],
@@ -425,7 +450,7 @@ function SweepPanel({
         </label>
         <button className="btn primary" disabled={running} onClick={() => void handleSweep()}>
           {running ? <Loader size={14} className="spin" /> : null}
-          {running ? "Running sweep…" : "Run sweep"}
+          {running ? "Running sweep..." : "Run sweep"}
         </button>
         {error && <p className="sweep-error">{error}</p>}
       </div>
@@ -433,7 +458,7 @@ function SweepPanel({
       {result && (
         <div className="sweep-results">
           <p className="sect-label metrics-label">
-            Sweep: {result.param} — {result.sweep.length} runs
+            Sweep: {result.param} - {result.sweep.length} runs
           </p>
           <table className="sweep-table">
             <thead>
@@ -459,9 +484,9 @@ function SweepPanel({
                           {m.total_return >= 0 ? "+" : ""}{(m.total_return * 100).toFixed(2)}%
                         </td>
                         <td>{(m.annualized_return * 100).toFixed(2)}%</td>
-                        <td>{m.sharpe != null ? m.sharpe.toFixed(2) : "—"}</td>
+                        <td>{m.sharpe != null ? m.sharpe.toFixed(2) : "-"}</td>
                         <td className="neg">{(m.max_drawdown * 100).toFixed(2)}%</td>
-                        <td>{m.turnover.toFixed(1)}×</td>
+                        <td>{m.turnover.toFixed(1)}x</td>
                       </>
                     ) : (
                       <td colSpan={5} className="muted-note">{pt.error ?? "failed"}</td>
@@ -504,4 +529,44 @@ function describeReadableBlock(block: Record<string, unknown>) {
     return `If ${condition.left.ref} ${condition.operator} ${condition.right.ref}, set ${thenAction.symbol} to ${thenAction.weight}; otherwise cash ${elseAction.weight}.`;
   }
   return String(block.id);
+}
+
+function executionLabel(value: string) {
+  if (value === "next_open") return "Next open";
+  return "Same close";
+}
+
+function cashPolicyLabel(policy: string, riskFreeRate: number) {
+  if (policy === "risk_free_proxy") return `Risk-free proxy (${(riskFreeRate * 100).toFixed(2)}%)`;
+  if (policy === "benchmark_asset") return "Benchmark asset";
+  return "Hold cash";
+}
+
+function preRunHealthFlags(experiment: ExperimentSummary) {
+  const flags: Array<{ code: string; severity: "info" | "caution" | "danger"; message: string }> = [];
+  const start = new Date(experiment.backtest.start_date);
+  const end = new Date(experiment.backtest.end_date);
+  const years = (end.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  if (years < 3) {
+    flags.push({ code: "short_window", severity: "caution", message: "Backtest window is under 3 years." });
+  }
+  if (!experiment.backtest.oos_start_date) {
+    flags.push({ code: "no_oos", severity: "caution", message: "No out-of-sample split configured." });
+  }
+  if (!experiment.backtest.use_adjusted) {
+    flags.push({ code: "raw_prices", severity: "danger", message: "Raw close ignores splits and dividends." });
+  }
+  const costs = experiment.backtest.cost_model.commission_bps + experiment.backtest.cost_model.slippage_bps;
+  if (costs >= 10) {
+    flags.push({ code: "high_costs", severity: "caution", message: `${costs} bps round-trip friction sensitivity risk.` });
+  }
+  if (experiment.strategy.universe.length < 5 && experiment.strategy.kind === "momentum_rotation") {
+    flags.push({ code: "small_universe", severity: "caution", message: "Small hand-picked universe can overstate rotation results." });
+  }
+  flags.push({
+    code: "survivorship",
+    severity: "info",
+    message: "ETF universe is user-selected, not point-in-time survivorship-safe.",
+  });
+  return flags;
 }

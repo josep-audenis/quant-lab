@@ -135,10 +135,10 @@ export function LabsScreen() {
   }
 
   const STAGE_LABELS: Record<string, string> = {
-    starting: "Starting…",
-    fetching_data: "Fetching data…",
-    simulating: "Simulating…",
-    saving: "Saving…",
+    starting: "Starting...",
+    fetching_data: "Fetching data...",
+    simulating: "Simulating...",
+    saving: "Saving...",
   };
 
   async function handleRunExperiment(experiment: ExperimentSummary): Promise<ExperimentSummary> {
@@ -146,7 +146,7 @@ export function LabsScreen() {
       setMessage(STAGE_LABELS[stage] ?? stage);
     });
     setExperiments((prev) => prev.map((e) => (e.id === result.id ? result : e)));
-    setMessage(`Backtest complete — ${result.name}`);
+    setMessage(`Backtest complete - ${result.name}`);
     return result;
   }
 
@@ -274,7 +274,7 @@ function ExperimentListScreen({
         </button>
         <input
           className="search-input"
-          placeholder="Search…"
+          placeholder="Search..."
           value={search}
           onChange={(e) => onSearch(e.target.value)}
         />
@@ -320,7 +320,7 @@ function ExperimentListScreen({
                 {experiment.strategy.universe.join(", ")}
               </span>
               <span className={ret == null ? "" : ret >= 0 ? "pos" : "neg"}>
-                {ret == null ? "—" : `${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(2)}%`}
+                {ret == null ? "-" : `${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(2)}%`}
               </span>
               <span onClick={() => onOpen(experiment)} style={{ cursor: "pointer" }}>
                 <span className={`status-chip status-${experiment.status}`}>{experiment.status}</span>
@@ -377,7 +377,7 @@ function EditorScreen({
   );
 }
 
-// ─── Comparison screen ────────────────────────────────────────────────────────
+// --- Comparison screen --------------------------------------------------------
 
 const COMPARE_COLORS = ["var(--accent)", "#4cdf88"] as const;
 
@@ -395,7 +395,7 @@ function ComparisonScreen({
     <section className="workbench comparison-screen">
       <div className="workbench-head">
         <button className="iconbtn back-btn" onClick={onBack}>
-          ←
+          Back
         </button>
         <div className="workbench-head-info">
           <p className="eyebrow">Comparison</p>
@@ -416,9 +416,9 @@ function ComparisonMetrics({ experiments }: { experiments: ExperimentSummary[] }
     { label: "Total return", fmt: (m) => `${m.total_return >= 0 ? "+" : ""}${(m.total_return * 100).toFixed(2)}%` },
     { label: "Ann. return", fmt: (m) => `${m.annualized_return >= 0 ? "+" : ""}${(m.annualized_return * 100).toFixed(2)}%` },
     { label: "Volatility", fmt: (m) => `${(m.volatility * 100).toFixed(2)}%` },
-    { label: "Sharpe", fmt: (m) => m.sharpe != null ? m.sharpe.toFixed(2) : "—" },
+    { label: "Sharpe", fmt: (m) => m.sharpe != null ? m.sharpe.toFixed(2) : "-" },
     { label: "Max drawdown", fmt: (m) => `${(m.max_drawdown * 100).toFixed(2)}%` },
-    { label: "Turnover", fmt: (m) => `${m.turnover.toFixed(1)}×` },
+    { label: "Turnover", fmt: (m) => `${m.turnover.toFixed(1)}x` },
   ];
   return (
     <div className="comparison-metrics">
@@ -436,7 +436,7 @@ function ComparisonMetrics({ experiments }: { experiments: ExperimentSummary[] }
             <tr key={row.label}>
               <td>{row.label}</td>
               {experiments.map((e) => (
-                <td key={e.id}>{e.result ? row.fmt(e.result.metrics) : "—"}</td>
+                <td key={e.id}>{e.result ? row.fmt(e.result.metrics) : "-"}</td>
               ))}
             </tr>
           ))}

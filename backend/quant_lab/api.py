@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -17,7 +19,10 @@ from .domain import (
     DomainError,
     Experiment,
     ExperimentStatus,
+    ExecutionTiming,
     Frequency,
+    RunProvenance,
+    SymbolDataProvenance,
     StrategyConfig,
     StrategyKind,
     to_primitive,
@@ -36,12 +41,14 @@ from .storage import ExperimentJsonStore, ExperimentNotFoundError
 
 DEFAULT_EXPERIMENT_ROOT = Path("data/experiments")
 DEFAULT_MARKET_CACHE_ROOT = Path("data/market_cache")
+DEFAULT_ALLOWED_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173")
 
 
 def create_app(
     store: ExperimentJsonStore | None = None,
     fetcher: MarketDataFetcher | None = None,
 ) -> FastAPI:
+    _load_env_file(Path(".env"))
     app = FastAPI(title="QuantLab API", version="0.1.0")
     app.state.store = store or ExperimentJsonStore(DEFAULT_EXPERIMENT_ROOT)
     app.state.fetcher = fetcher or MarketDataFetcher(DEFAULT_MARKET_CACHE_ROOT)
@@ -49,10 +56,7 @@ def create_app(
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-        ],
+        allow_origins=_allowed_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -164,7 +168,10 @@ def create_app(
         market_data = {symbol: series.bars for symbol, series in market_data_series.items()}
 
         try:
-            result = run_backtest(experiment, market_data)
+            result = replace(
+                run_backtest(experiment, market_data),
+                provenance=_run_provenance(app.state.fetcher, market_data_series, experiment.backtest),
+            )
         except DomainError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
@@ -207,7 +214,10 @@ def create_app(
                 market_data = {sym: series.bars for sym, series in market_data_series.items()}
 
                 app.state.run_jobs[job_id]["stage"] = "simulating"
-                result = run_backtest(experiment, market_data)
+                result = replace(
+                    run_backtest(experiment, market_data),
+                    provenance=_run_provenance(app.state.fetcher, market_data_series, experiment.backtest),
+                )
 
                 app.state.run_jobs[job_id]["stage"] = "saving"
                 now = datetime.now(UTC)
@@ -315,6 +325,7 @@ def _build_draft_experiment(payload: dict[str, Any], existing: Experiment | None
                 risk_free_rate=_float(payload.get("risk_free_rate", 0.0)),
                 use_adjusted=bool(payload.get("use_adjusted", True)),
                 oos_start_date=date.fromisoformat(payload["oos_start_date"]) if payload.get("oos_start_date") else None,
+                execution_timing=ExecutionTiming(payload.get("execution_timing", ExecutionTiming.SAME_CLOSE.value)),
             ),
             created_at=existing.created_at if existing else now,
             updated_at=now,
@@ -518,3 +529,76 @@ def _rules(
             f"Hold top {parameters['top_n']} assets at each rebalance.",
         ]
     return ["Run custom deterministic strategy rules."]
+
+
+def _allowed_origins() -> list[str]:
+    raw = os.getenv("QUANT_LAB_CORS_ORIGINS")
+    if not raw:
+        return list(DEFAULT_ALLOWED_ORIGINS)
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+def _run_provenance(
+    fetcher: MarketDataFetcher,
+    market_data_series: dict[str, Any],
+    config: BacktestConfig,
+) -> RunProvenance:
+    return RunProvenance(
+        data=tuple(
+            _symbol_provenance(fetcher, series, config)
+            for series in market_data_series.values()
+        )
+    )
+
+
+def _symbol_provenance(
+    fetcher: MarketDataFetcher,
+    series: Any,
+    config: BacktestConfig,
+) -> SymbolDataProvenance:
+    expected = _expected_bars(config.start_date, config.end_date)
+    actual = sum(1 for bar in series.bars if config.start_date <= bar.as_of <= config.end_date)
+    cache_path = fetcher._cache_path(series.symbol, config.start_date, config.end_date)
+    cache_key = str(cache_path)
+    cache_hash = _file_sha256(cache_path) if cache_path.exists() else None
+    return SymbolDataProvenance(
+        symbol=series.symbol,
+        source=series.source,
+        adjustment=series.adjustment,
+        requested_start=config.start_date,
+        requested_end=config.end_date,
+        actual_start=series.start_date,
+        actual_end=series.end_date,
+        fetched_at=series.fetched_at,
+        bar_count=actual,
+        expected_bars=expected,
+        missing_bars=max(0, expected - actual),
+        cache_key=cache_key,
+        cache_hash=cache_hash,
+    )
+
+
+def _expected_bars(start: date, end: date) -> int:
+    return max(1, (end - start).days * 252 // 365)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

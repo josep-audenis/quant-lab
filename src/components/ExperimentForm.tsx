@@ -59,11 +59,12 @@ const emptyPayload: DraftExperimentPayload = {
   commission_bps: 1,
   slippage_bps: 2,
   min_commission: 0,
-  cash_policy: "hold_cash",
+  cash_policy: "risk_free_proxy",
   risk_free_rate: 0.02,
   notes: "",
   use_adjusted: true,
   oos_start_date: "",
+  execution_timing: "next_open",
 };
 
 export function experimentToForm(experiment: ExperimentSummary | null): DraftExperimentPayload {
@@ -94,6 +95,7 @@ export function experimentToForm(experiment: ExperimentSummary | null): DraftExp
     notes: experiment.notes ?? "",
     use_adjusted: experiment.backtest.use_adjusted ?? true,
     oos_start_date: experiment.backtest.oos_start_date ?? "",
+    execution_timing: experiment.backtest.execution_timing ?? "same_close",
   };
 }
 
@@ -114,6 +116,8 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit, onSubmitC
   const [commission, setCommission] = useState(initial.commission_bps);
   const [slippage, setSlippage] = useState(initial.slippage_bps);
   const [cashYield, setCashYield] = useState(initial.risk_free_rate * 100);
+  const [cashPolicy, setCashPolicy] = useState(initial.cash_policy);
+  const [executionTiming, setExecutionTiming] = useState(initial.execution_timing);
   const [useAdjusted, setUseAdjusted] = useState(initial.use_adjusted);
   const [oosStartDate, setOosStartDate] = useState(initial.oos_start_date);
   const [query, setQuery] = useState("");
@@ -155,10 +159,11 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit, onSubmitC
         frequency: "daily",
         rebalance_frequency: rebalanceFreq,
         cost_model: { commission_bps: commission, slippage_bps: slippage, min_commission: 0 },
-        cash_policy: "hold_cash",
+        cash_policy: cashPolicy,
         risk_free_rate: cashYield / 100,
         use_adjusted: useAdjusted,
         oos_start_date: oosStartDate || null,
+        execution_timing: executionTiming,
       },
       created_at: now,
       updated_at: now,
@@ -201,9 +206,11 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit, onSubmitC
       rebalance_frequency: rebalance === "Weekly" ? "weekly" : rebalance === "Monthly" ? "monthly" : "daily",
       commission_bps: commission,
       slippage_bps: slippage,
+      cash_policy: cashPolicy,
       risk_free_rate: cashYield / 100,
       use_adjusted: useAdjusted,
       oos_start_date: oosStartDate,
+      execution_timing: executionTiming,
       notes: `Template: ${template}. Out-of-market action: ${action}. Benchmark view: ${benchmark}.`,
     };
   }
@@ -492,6 +499,14 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit, onSubmitC
                   ))}
                 </div>
               </div>
+              <div className="field">
+                <label>Execution timing</label>
+                <div className="seg">
+                  <button className={executionTiming === "next_open" ? "on" : ""} type="button" onClick={() => setExecutionTiming("next_open")}>Next open</button>
+                  <button className={executionTiming === "same_close" ? "on" : ""} type="button" onClick={() => setExecutionTiming("same_close")}>Same close</button>
+                </div>
+                <div className="hint">Next open avoids same-close signal/fill bias. Same close preserves legacy runs.</div>
+              </div>
             </div></div>
           </div>
 
@@ -501,6 +516,15 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit, onSubmitC
               <RangeField label="Commission" max={10} step={0.5} unit="bps / trade" value={commission} onChange={setCommission} />
               <RangeField label="Slippage" max={15} step={0.5} unit="bps / trade" value={slippage} onChange={setSlippage} />
               <RangeField label="Cash yield (when out)" max={6} step={0.25} unit="% annual" value={cashYield} onChange={setCashYield} />
+              <div className="field">
+                <label>Cash policy</label>
+                <div className="seg">
+                  <button className={cashPolicy === "risk_free_proxy" ? "on" : ""} type="button" onClick={() => setCashPolicy("risk_free_proxy")}>Risk-free</button>
+                  <button className={cashPolicy === "hold_cash" ? "on" : ""} type="button" onClick={() => setCashPolicy("hold_cash")}>Idle cash</button>
+                  <button className={cashPolicy === "benchmark_asset" ? "on" : ""} type="button" onClick={() => setCashPolicy("benchmark_asset")}>Benchmark</button>
+                </div>
+                <div className="hint">Risk-free earns configured cash yield; idle cash earns zero; benchmark invests idle sleeve in benchmark.</div>
+              </div>
               <div className="field">
                 <label>Adjusted prices</label>
                 <div className="seg">

@@ -40,6 +40,7 @@ def experiment_from_json(value: str | bytes | Path) -> Experiment:
 
 
 def _decode_dataclass(cls: type[Any], payload: dict[str, Any]) -> Any:
+    payload = _migrate_legacy_payload(cls, payload)
     kwargs: dict[str, Any] = {}
     type_hints = get_type_hints(cls)
     for item in fields(cls):
@@ -53,6 +54,15 @@ def _decode_dataclass(cls: type[Any], payload: dict[str, Any]) -> Any:
             raise DomainError(f"Experiment JSON missing field: {item.name}")
         kwargs[item.name] = _decode_value(type_hints[item.name], payload[item.name])
     return cls(**kwargs)
+
+
+def _migrate_legacy_payload(cls: type[Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if cls is domain.BacktestConfig and "execution_timing" not in payload:
+        migrated = dict(payload)
+        if migrated.get("cash_policy") == "hold_cash" and float(migrated.get("risk_free_rate", 0.0)) > 0:
+            migrated["cash_policy"] = "risk_free_proxy"
+        return migrated
+    return payload
 
 
 def _decode_value(expected_type: Any, value: Any) -> Any:

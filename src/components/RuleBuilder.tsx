@@ -407,7 +407,7 @@ function AllocationBody({ block, onChange, universe }: { block: Block; onChange:
 function RefSelect({ options, onChange, value }: { options: Array<{ value: string; label: string }>; onChange: (value: string) => void; value: string }) {
   return (
     <select className="ref-select" value={value} onChange={(event) => onChange(event.target.value)}>
-      <option disabled value="">choose…</option>
+      <option disabled value="">choose...</option>
       {options.map((option) => (
         <option key={option.value} value={option.value}>{option.label}</option>
       ))}

@@ -44,6 +44,11 @@ class CashPolicy(StrEnum):
     RISK_FREE_PROXY = "risk_free_proxy"
 
 
+class ExecutionTiming(StrEnum):
+    SAME_CLOSE = "same_close"
+    NEXT_OPEN = "next_open"
+
+
 class DataAdjustment(StrEnum):
     RAW = "raw"
     SPLIT_ADJUSTED = "split_adjusted"
@@ -140,6 +145,7 @@ class BacktestConfig:
     risk_free_rate: float = 0.0
     use_adjusted: bool = True
     oos_start_date: date | None = None
+    execution_timing: ExecutionTiming = ExecutionTiming.SAME_CLOSE
 
     def __post_init__(self) -> None:
         if self.start_date >= self.end_date:
@@ -311,6 +317,37 @@ class BenchmarkPoint:
 
 
 @dataclass(frozen=True)
+class SymbolDataProvenance:
+    symbol: str
+    source: str
+    adjustment: DataAdjustment
+    requested_start: date
+    requested_end: date
+    actual_start: date
+    actual_end: date
+    fetched_at: datetime
+    bar_count: int
+    expected_bars: int
+    missing_bars: int
+    cache_key: str | None = None
+    cache_hash: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.symbol.strip():
+            raise DomainError("Symbol data provenance symbol cannot be empty")
+        if not self.source.strip():
+            raise DomainError("Symbol data provenance source cannot be empty")
+        _require_non_negative("bar_count", self.bar_count)
+        _require_non_negative("expected_bars", self.expected_bars)
+        _require_non_negative("missing_bars", self.missing_bars)
+
+
+@dataclass(frozen=True)
+class RunProvenance:
+    data: tuple[SymbolDataProvenance, ...] = ()
+
+
+@dataclass(frozen=True)
 class BacktestResult:
     run_id: str
     generated_at: datetime
@@ -322,6 +359,7 @@ class BacktestResult:
     warnings: tuple[RiskWarning, ...] = ()
     benchmark_curve: tuple[BenchmarkPoint, ...] = ()
     oos_metrics: MetricSet | None = None
+    provenance: RunProvenance = field(default_factory=RunProvenance)
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():

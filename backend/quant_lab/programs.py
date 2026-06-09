@@ -67,7 +67,7 @@ def _execute_blocks(
                 ranked = indicator_values[ranking_ref]
                 top_n = int(block.get("top_n", 1))
                 symbols = [s for s in program.universe if ranked.get(as_of) is not None]
-                # ranked stores per-symbol returns keyed by (symbol, date) — see _compute_indicators
+                # ranked stores per-symbol returns keyed by (symbol, date) - see _compute_indicators
                 per_symbol = indicator_values.get(f"{ranking_ref}__per_symbol", {})
                 if per_symbol:
                     scores = {s: per_symbol.get(s, {}).get(as_of) for s in program.universe}

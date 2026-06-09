@@ -14,6 +14,8 @@ export function ResultsPanel({ result, initialCapital, benchmark }: ResultsPanel
   return (
     <section className="results-panel">
       <MetricsGrid metrics={metrics} benchmark={benchmark} />
+      <AssumptionsPanel result={result} />
+      {result.provenance.data.length > 0 && <ProvenancePanel result={result} />}
       {result.oos_metrics && <OosPanel isMetrics={metrics} oosMetrics={result.oos_metrics} benchmark={benchmark} />}
       <EquityChart curve={equity_curve} benchmarkCurve={result.benchmark_curve} initialCapital={initialCapital} />
       <DrawdownChart curve={equity_curve} />
@@ -24,7 +26,7 @@ export function ResultsPanel({ result, initialCapital, benchmark }: ResultsPanel
   );
 }
 
-// ─── Metrics grid ────────────────────────────────────────────────────────────
+// --- Metrics grid ------------------------------------------------------------
 
 function MetricsGrid({ metrics, benchmark }: { metrics: MetricSet; benchmark: string }) {
   const stratColor = metrics.total_return >= 0 ? "pos" : "neg";
@@ -48,7 +50,7 @@ function MetricsGrid({ metrics, benchmark }: { metrics: MetricSet; benchmark: st
         />
         <MetricCard
           label={`vs ${benchmark}`}
-          value={metrics.benchmark_total_return != null ? pct(metrics.benchmark_total_return) : "—"}
+          value={metrics.benchmark_total_return != null ? pct(metrics.benchmark_total_return) : "-"}
           sub={
             metrics.benchmark_annualized_return != null
               ? `Ann. ${pct(metrics.benchmark_annualized_return)}`
@@ -65,7 +67,7 @@ function MetricsGrid({ metrics, benchmark }: { metrics: MetricSet; benchmark: st
         />
         <MetricCard
           label="Sharpe ratio"
-          value={metrics.sharpe != null ? metrics.sharpe.toFixed(2) : "—"}
+          value={metrics.sharpe != null ? metrics.sharpe.toFixed(2) : "-"}
           sub="Risk-adjusted return"
           color={metrics.sharpe != null && metrics.sharpe > 0 ? "pos" : "neg"}
         />
@@ -77,11 +79,80 @@ function MetricsGrid({ metrics, benchmark }: { metrics: MetricSet; benchmark: st
         />
         <MetricCard
           label="Turnover"
-          value={`${metrics.turnover.toFixed(1)}×`}
-          sub="Avg capital traded"
+          value={`${metrics.turnover.toFixed(1)}x`}
+          sub="Annualized capital traded"
           color=""
         />
       </div>
+    </div>
+  );
+}
+
+function AssumptionsPanel({ result }: { result: BacktestResult }) {
+  const config = result.config;
+  return (
+    <div className="assumptions-section">
+      <p className="sect-label metrics-label">Run assumptions</p>
+      <div className="assumption-grid">
+        <AssumptionItem label="Execution" value={executionLabel(config.execution_timing)} />
+        <AssumptionItem label="Cash policy" value={cashPolicyLabel(config.cash_policy, config.risk_free_rate)} />
+        <AssumptionItem label="Prices" value={config.use_adjusted ? "Adjusted close" : "Raw close"} />
+        <AssumptionItem label="Rebalance" value={config.rebalance_frequency} />
+        <AssumptionItem
+          label="Costs"
+          value={`${config.cost_model.commission_bps} bps commission, ${config.cost_model.slippage_bps} bps slippage`}
+        />
+        <AssumptionItem
+          label="Run date"
+          value={new Date(result.generated_at).toLocaleString()}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ProvenancePanel({ result }: { result: BacktestResult }) {
+  return (
+    <div className="provenance-section">
+      <p className="sect-label metrics-label">Data provenance</p>
+      <div className="provenance-table-wrap">
+        <table className="provenance-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Source</th>
+              <th>Adjustment</th>
+              <th>Coverage</th>
+              <th>Fetched</th>
+              <th>Cache</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.provenance.data.map((item) => (
+              <tr key={item.symbol}>
+                <td>{item.symbol}</td>
+                <td>{item.source}</td>
+                <td>{item.adjustment}</td>
+                <td>
+                  {item.bar_count}/{item.expected_bars}
+                  {item.missing_bars > 0 ? ` (${item.missing_bars} missing)` : ""}
+                </td>
+                <td>{new Date(item.fetched_at).toLocaleDateString()}</td>
+                <td>{item.cache_hash ? item.cache_hash.slice(0, 10) : "not cached"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AssumptionItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="assumption-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -111,7 +182,7 @@ function MetricCard({
   );
 }
 
-// ─── Equity chart ─────────────────────────────────────────────────────────────
+// --- Equity chart -------------------------------------------------------------
 
 function EquityChart({
   curve,
@@ -170,7 +241,7 @@ function EquityChart({
   const tickCount = 5;
   const ticks = Array.from({ length: tickCount }, (_, i) => minV + (i / (tickCount - 1)) * range);
 
-  // X axis labels — sample ~5 evenly spaced dates
+  // X axis labels - sample ~5 evenly spaced dates
   const xSampleCount = 5;
   const xSamples = Array.from({ length: xSampleCount }, (_, i) =>
     Math.round((i / (xSampleCount - 1)) * (curve.length - 1)),
@@ -278,7 +349,7 @@ function EquityChart({
   );
 }
 
-// ─── OOS panel ───────────────────────────────────────────────────────────────
+// --- OOS panel ---------------------------------------------------------------
 
 function OosPanel({
   isMetrics,
@@ -310,8 +381,8 @@ function OosPanel({
     },
     {
       label: "Sharpe",
-      is: isMetrics.sharpe != null ? isMetrics.sharpe.toFixed(2) : "—",
-      oos: oosMetrics.sharpe != null ? oosMetrics.sharpe.toFixed(2) : "—",
+      is: isMetrics.sharpe != null ? isMetrics.sharpe.toFixed(2) : "-",
+      oos: oosMetrics.sharpe != null ? oosMetrics.sharpe.toFixed(2) : "-",
       higherBetter: true,
     },
     {
@@ -322,8 +393,8 @@ function OosPanel({
     },
     {
       label: `${benchmark} total`,
-      is: isMetrics.benchmark_total_return != null ? pct(isMetrics.benchmark_total_return) : "—",
-      oos: oosMetrics.benchmark_total_return != null ? pct(oosMetrics.benchmark_total_return) : "—",
+      is: isMetrics.benchmark_total_return != null ? pct(isMetrics.benchmark_total_return) : "-",
+      oos: oosMetrics.benchmark_total_return != null ? pct(oosMetrics.benchmark_total_return) : "-",
       higherBetter: null,
     },
   ];
@@ -355,7 +426,7 @@ function OosPanel({
                 <td>{row.label}</td>
                 <td>{row.is}</td>
                 <td>{row.oos}</td>
-                <td>—</td>
+                <td>-</td>
               </tr>
             ))}
           </tbody>
@@ -365,7 +436,7 @@ function OosPanel({
   );
 }
 
-// ─── Attribution chart ───────────────────────────────────────────────────────
+// --- Attribution chart -------------------------------------------------------
 
 function AttributionChart({ fills }: { fills: Fill[] }) {
   // FIFO realized P&L per symbol
@@ -432,7 +503,7 @@ function AttributionChart({ fills }: { fills: Fill[] }) {
   );
 }
 
-// ─── Drawdown chart ───────────────────────────────────────────────────────────
+// --- Drawdown chart -----------------------------------------------------------
 
 function DrawdownChart({ curve }: { curve: PortfolioSnapshot[] }) {
   if (curve.length < 2) return null;
@@ -507,7 +578,7 @@ function DrawdownChart({ curve }: { curve: PortfolioSnapshot[] }) {
   );
 }
 
-// ─── Fills table ─────────────────────────────────────────────────────────────
+// --- Fills table -------------------------------------------------------------
 
 function FillsTable({ fills }: { fills: Fill[] }) {
   const sorted = [...fills].sort((a, b) => b.as_of.localeCompare(a.as_of));
@@ -537,7 +608,7 @@ function FillsTable({ fills }: { fills: Fill[] }) {
                 <td>{f.quantity.toFixed(4)}</td>
                 <td>${f.price.toFixed(2)}</td>
                 <td>${(f.quantity * f.price).toFixed(0)}</td>
-                <td>{f.commission > 0 ? `$${f.commission.toFixed(2)}` : "—"}</td>
+                <td>{f.commission > 0 ? `$${f.commission.toFixed(2)}` : "-"}</td>
               </tr>
             ))}
           </tbody>
@@ -550,7 +621,7 @@ function FillsTable({ fills }: { fills: Fill[] }) {
   );
 }
 
-// ─── Warnings ────────────────────────────────────────────────────────────────
+// --- Warnings ----------------------------------------------------------------
 
 function WarningsList({ warnings }: { warnings: RiskWarning[] }) {
   return (
@@ -574,11 +645,22 @@ function WarningsList({ warnings }: { warnings: RiskWarning[] }) {
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// --- Helpers -----------------------------------------------------------------
 
 function pct(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${(value * 100).toFixed(2)}%`;
+}
+
+function executionLabel(value: string) {
+  if (value === "next_open") return "Next open";
+  return "Same close";
+}
+
+function cashPolicyLabel(policy: string, riskFreeRate: number) {
+  if (policy === "risk_free_proxy") return `Risk-free proxy (${(riskFreeRate * 100).toFixed(2)}%)`;
+  if (policy === "benchmark_asset") return "Benchmark asset";
+  return "Hold cash";
 }
 
 function fmtDate(iso: string) {

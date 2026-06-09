@@ -138,6 +138,8 @@ class BacktestConfig:
     cost_model: CostModel = field(default_factory=CostModel)
     cash_policy: CashPolicy = CashPolicy.HOLD_CASH
     risk_free_rate: float = 0.0
+    use_adjusted: bool = True
+    oos_start_date: date | None = None
 
     def __post_init__(self) -> None:
         if self.start_date >= self.end_date:
@@ -146,6 +148,11 @@ class BacktestConfig:
             raise DomainError("Backtest initial_capital must be positive")
         if not self.benchmark.strip():
             raise DomainError("Backtest benchmark cannot be empty")
+        if self.oos_start_date is not None:
+            if self.oos_start_date <= self.start_date:
+                raise DomainError("oos_start_date must be after start_date")
+            if self.oos_start_date >= self.end_date:
+                raise DomainError("oos_start_date must be before end_date")
 
 
 @dataclass(frozen=True)
@@ -295,6 +302,15 @@ class RiskWarning:
 
 
 @dataclass(frozen=True)
+class BenchmarkPoint:
+    as_of: date
+    equity: float
+
+    def __post_init__(self) -> None:
+        _require_non_negative("equity", self.equity)
+
+
+@dataclass(frozen=True)
 class BacktestResult:
     run_id: str
     generated_at: datetime
@@ -304,6 +320,8 @@ class BacktestResult:
     equity_curve: tuple[PortfolioSnapshot, ...]
     fills: tuple[Fill, ...] = ()
     warnings: tuple[RiskWarning, ...] = ()
+    benchmark_curve: tuple[BenchmarkPoint, ...] = ()
+    oos_metrics: MetricSet | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():

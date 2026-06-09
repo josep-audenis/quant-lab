@@ -1,46 +1,77 @@
-import { ArrowLeft, Download, Pencil, Save, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { ExperimentSummary } from "../api/experiments";
+import { ArrowLeft, Download, Loader, Pencil, Play, Save, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ExperimentSummary, SweepResult } from "../api/experiments";
+import { sweepExperiment } from "../api/experiments";
+import { RuleBuilder, type Block } from "./RuleBuilder";
+import { ResultsPanel } from "./ResultsPanel";
+
+type RuleWorkbenchMode = "view" | "setup" | "rules" | "results" | "sweep";
 
 type RuleWorkbenchProps = {
   experiment: ExperimentSummary;
   onDelete: (experiment: ExperimentSummary) => void;
   onExport: (experiment: ExperimentSummary) => void;
   onClose: () => void;
+  onRun: (experiment: ExperimentSummary) => Promise<ExperimentSummary>;
   onSave: (experiment: ExperimentSummary) => void;
 };
 
-export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onSave }: RuleWorkbenchProps) {
+export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onRun, onSave }: RuleWorkbenchProps) {
   const [draft, setDraft] = useState(experiment);
-  const [mode, setMode] = useState<"view" | "setup" | "rules">("view");
+  const [mode, setMode] = useState<RuleWorkbenchMode>("view");
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [runStage, setRunStage] = useState("");
+  const [sweepResult, setSweepResult] = useState<SweepResult | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     setDraft(experiment);
-    setMode("view");
+    // If experiment just completed (has result), jump straight to results
+    if (experiment.result) {
+      setMode("results");
+    } else {
+      setMode("view");
+    }
+    setRunError(null);
   }, [experiment]);
 
   const blocks = draft.strategy_program?.blocks ?? [];
   const jsonPreview = useMemo(() => JSON.stringify(draft.strategy_program, null, 2), [draft]);
 
-  function updateBlock(index: number, patch: Record<string, unknown>) {
+  function setBlocks(nextBlocks: Block[]) {
     setDraft((current) => {
-      const currentProgram = current.strategy_program ?? {
-        version: 1,
-        universe: current.strategy.universe,
-        blocks: [],
-      };
-      const nextBlocks = currentProgram.blocks.map((block, blockIndex) =>
-        blockIndex === index ? { ...block, ...patch } : block,
-      );
+      const universe = current.strategy_program?.universe ?? current.strategy.universe;
       return {
         ...current,
         strategy_program: {
-          ...currentProgram,
+          version: current.strategy_program?.version ?? 1,
+          universe,
           blocks: nextBlocks,
         },
       };
     });
   }
+
+  async function handleRun() {
+    setRunning(true);
+    setRunError(null);
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed((e) => +(e + 0.1).toFixed(1)), 100);
+    try {
+      const updated = await onRun(draft);
+      setDraft(updated);
+      setMode("results");
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "Run failed");
+    } finally {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setRunning(false);
+    }
+  }
+
+  const hasResult = !!draft.result;
 
   return (
     <section className="workbench">
@@ -48,7 +79,7 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onSave 
         <button className="iconbtn back-btn" onClick={onClose} title="Back to experiments">
           <ArrowLeft size={17} />
         </button>
-        <div>
+        <div className="workbench-head-info">
           <p className="eyebrow">Rule editor</p>
           <h1>{draft.name}</h1>
           <p>{draft.hypothesis}</p>
@@ -58,29 +89,60 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onSave 
             <Download size={15} />
             Export
           </button>
-          {mode === "view" ? (
+
+          {mode === "view" || mode === "results" ? (
             <>
               <button className="btn" onClick={() => setMode("setup")}>
                 <Pencil size={15} />
                 Edit setup
               </button>
-              <button className="btn primary" onClick={() => setMode("rules")}>
+              <button className="btn" onClick={() => setMode("rules")}>
                 <Pencil size={15} />
                 Edit rules
               </button>
             </>
           ) : (
+            <button
+              className="btn"
+              onClick={() => {
+                onSave({ ...draft, result: null, status: "draft" });
+                setMode("view");
+              }}
+            >
+              <Save size={15} />
+              Save
+            </button>
+          )}
+
+          <div className="action-sep" />
+
           <button
             className="btn primary"
-            onClick={() => {
-              onSave(draft);
-              setMode("view");
-            }}
+            disabled={running}
+            onClick={() => void handleRun()}
           >
-            <Save size={15} />
-            Save
+            {running ? <Loader size={15} className="spin" /> : <Play size={15} />}
+            {running ? `${runStage || "Running…"} ${elapsed.toFixed(1)}s` : "Run backtest"}
           </button>
+
+          {hasResult && (
+            <button
+              className={`btn ${mode === "results" ? "active-tab" : ""}`}
+              onClick={() => setMode("results")}
+            >
+              Results
+            </button>
           )}
+
+          <button
+            className={`btn ${mode === "sweep" ? "active-tab" : ""}`}
+            onClick={() => setMode("sweep")}
+          >
+            Sweep
+          </button>
+
+          <div className="action-sep" />
+
           <button className="btn danger" onClick={() => onDelete(draft)}>
             <Trash2 size={15} />
             Delete
@@ -88,111 +150,131 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onSave 
         </div>
       </div>
 
-      {mode === "view" ? (
-        <ExperimentDetail experiment={draft} />
+      {runError && (
+        <div className="run-error">
+          <span>{runError}</span>
+        </div>
+      )}
+
+      {mode === "sweep" ? (
+        <SweepPanel experiment={draft} result={sweepResult} onResult={setSweepResult} />
+      ) : mode === "results" && draft.result ? (
+        <ResultsPanel
+          result={draft.result}
+          initialCapital={draft.backtest.initial_capital}
+          benchmark={draft.backtest.benchmark}
+        />
+      ) : mode === "view" ? (
+        <ExperimentDetail experiment={draft} onRun={() => void handleRun()} running={running} />
       ) : (
-      <div className={`workbench-grid ${mode === "rules" ? "rules-focus" : "setup-focus"}`}>
-        {mode === "setup" ? <section className="setup-panel">
-          <div className="panel-title">
-            <span>Experiment setup</span>
-            <strong>{draft.status}</strong>
-          </div>
-          <label className="field">
-            <span>Name</span>
-            <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-          </label>
-          <label className="field">
-            <span>Hypothesis</span>
-            <textarea
-              rows={4}
-              value={draft.hypothesis ?? ""}
-              onChange={(event) => setDraft({ ...draft, hypothesis: event.target.value })}
-            />
-          </label>
-          <div className="setup-grid">
-            <label className="field">
-              <span>Universe</span>
-              <input
-                value={draft.strategy.universe.join(", ")}
-                onChange={(event) => {
-                  const universe = event.target.value
-                    .split(",")
-                    .map((symbol) => symbol.trim().toUpperCase())
-                    .filter(Boolean);
-                  setDraft({
-                    ...draft,
-                    strategy: { ...draft.strategy, universe },
-                    strategy_program: draft.strategy_program
-                      ? { ...draft.strategy_program, universe }
-                      : draft.strategy_program,
-                  });
-                }}
-              />
-            </label>
-            <label className="field">
-              <span>Benchmark</span>
-              <input
-                value={draft.backtest.benchmark}
-                onChange={(event) =>
-                  setDraft({ ...draft, backtest: { ...draft.backtest, benchmark: event.target.value } })
-                }
-              />
-            </label>
-            <label className="field">
-              <span>Start</span>
-              <input
-                type="date"
-                value={draft.backtest.start_date}
-                onChange={(event) =>
-                  setDraft({ ...draft, backtest: { ...draft.backtest, start_date: event.target.value } })
-                }
-              />
-            </label>
-            <label className="field">
-              <span>End</span>
-              <input
-                type="date"
-                value={draft.backtest.end_date}
-                onChange={(event) =>
-                  setDraft({ ...draft, backtest: { ...draft.backtest, end_date: event.target.value } })
-                }
-              />
-            </label>
-          </div>
-        </section> : null}
+        <div className={`workbench-grid ${mode === "rules" ? "rules-focus" : "setup-focus"}`}>
+          {mode === "setup" ? (
+            <section className="setup-panel">
+              <div className="panel-title">
+                <span>Experiment setup</span>
+                <strong>{draft.status}</strong>
+              </div>
+              <label className="field">
+                <span>Name</span>
+                <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+              </label>
+              <label className="field">
+                <span>Hypothesis</span>
+                <textarea
+                  rows={4}
+                  value={draft.hypothesis ?? ""}
+                  onChange={(event) => setDraft({ ...draft, hypothesis: event.target.value })}
+                />
+              </label>
+              <div className="setup-grid">
+                <label className="field">
+                  <span>Universe</span>
+                  <input
+                    value={draft.strategy.universe.join(", ")}
+                    onChange={(event) => {
+                      const universe = event.target.value
+                        .split(",")
+                        .map((symbol) => symbol.trim().toUpperCase())
+                        .filter(Boolean);
+                      setDraft({
+                        ...draft,
+                        strategy: { ...draft.strategy, universe },
+                        strategy_program: draft.strategy_program
+                          ? { ...draft.strategy_program, universe }
+                          : draft.strategy_program,
+                      });
+                    }}
+                  />
+                </label>
+                <label className="field">
+                  <span>Benchmark</span>
+                  <input
+                    value={draft.backtest.benchmark}
+                    onChange={(event) =>
+                      setDraft({ ...draft, backtest: { ...draft.backtest, benchmark: event.target.value } })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Start</span>
+                  <input
+                    type="date"
+                    value={draft.backtest.start_date}
+                    onChange={(event) =>
+                      setDraft({ ...draft, backtest: { ...draft.backtest, start_date: event.target.value } })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>End</span>
+                  <input
+                    type="date"
+                    value={draft.backtest.end_date}
+                    onChange={(event) =>
+                      setDraft({ ...draft, backtest: { ...draft.backtest, end_date: event.target.value } })
+                    }
+                  />
+                </label>
+              </div>
+            </section>
+          ) : null}
 
-        {mode === "rules" ? <section className="rules-panel">
-          <div className="panel-title">
-            <span>Executable blocks</span>
-            <strong>{blocks.length}</strong>
-          </div>
-          <div className="rule-flow">
-            {blocks.map((block, index) => (
-              <RuleBlockEditor
-                block={block}
-                index={index}
-                key={String(block.id)}
+          {mode === "rules" ? (
+            <section className="rules-panel">
+              <div className="panel-title">
+                <span>Executable blocks</span>
+                <strong>{blocks.length}</strong>
+              </div>
+              <RuleBuilder
+                blocks={blocks as Block[]}
                 universe={draft.strategy_program?.universe ?? draft.strategy.universe}
-                onChange={(patch) => updateBlock(index, patch)}
+                onChange={setBlocks}
               />
-            ))}
-          </div>
-        </section> : null}
+            </section>
+          ) : null}
 
-        <section className="program-panel">
-          <div className="panel-title">
-            <span>Compiled JSON</span>
-            <strong>v{draft.strategy_program?.version ?? 1}</strong>
-          </div>
-          <pre>{jsonPreview}</pre>
-        </section>
-      </div>
+          <section className="program-panel">
+            <div className="panel-title">
+              <span>Compiled JSON</span>
+              <strong>v{draft.strategy_program?.version ?? 1}</strong>
+            </div>
+            <pre>{jsonPreview}</pre>
+          </section>
+        </div>
       )}
     </section>
   );
 }
 
-function ExperimentDetail({ experiment }: { experiment: ExperimentSummary }) {
+function ExperimentDetail({
+  experiment,
+  onRun,
+  running,
+}: {
+  experiment: ExperimentSummary;
+  onRun: () => void;
+  running: boolean;
+}) {
   const blocks = experiment.strategy_program?.blocks ?? [];
   return (
     <section className="detail-screen">
@@ -224,12 +306,12 @@ function ExperimentDetail({ experiment }: { experiment: ExperimentSummary }) {
             <div>
               <dt>Window</dt>
               <dd>
-                {experiment.backtest.start_date} to {experiment.backtest.end_date}
+                {experiment.backtest.start_date} → {experiment.backtest.end_date}
               </dd>
             </div>
             <div>
               <dt>Capital</dt>
-              <dd>{experiment.backtest.initial_capital.toLocaleString()}</dd>
+              <dd>${experiment.backtest.initial_capital.toLocaleString()}</dd>
             </div>
             <div>
               <dt>Benchmark</dt>
@@ -249,7 +331,149 @@ function ExperimentDetail({ experiment }: { experiment: ExperimentSummary }) {
           ))}
         </div>
       </section>
+      {!experiment.result && (
+        <div className="run-cta">
+          <p>No results yet. Run the backtest to simulate this strategy against historical data.</p>
+          <button className="btn primary lg" disabled={running} onClick={onRun}>
+            {running ? <Loader size={15} className="spin" /> : <Play size={15} />}
+            {running ? "Running…" : "Run backtest"}
+          </button>
+        </div>
+      )}
     </section>
+  );
+}
+
+// ─── Sweep panel ─────────────────────────────────────────────────────────────
+
+const SWEEP_PARAMS: Record<string, Array<{ key: string; label: string; defaultValues: string }>> = {
+  moving_average_filter: [{ key: "window", label: "MA window", defaultValues: "50,100,150,200,250,300" }],
+  momentum_rotation: [
+    { key: "lookback_months", label: "Lookback months", defaultValues: "3,6,9,12,18" },
+    { key: "top_n", label: "Top N", defaultValues: "1,2,3,4" },
+  ],
+  buy_and_hold: [],
+};
+
+function SweepPanel({
+  experiment,
+  result,
+  onResult,
+}: {
+  experiment: ExperimentSummary;
+  result: SweepResult | null;
+  onResult: (r: SweepResult) => void;
+}) {
+  const kind = experiment.strategy.kind;
+  const params = SWEEP_PARAMS[kind] ?? [];
+  const [paramKey, setParamKey] = useState(params[0]?.key ?? "");
+  const [valuesStr, setValuesStr] = useState(params[0]?.defaultValues ?? "");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSweep() {
+    const values = valuesStr
+      .split(",")
+      .map((v) => Number(v.trim()))
+      .filter((v) => !Number.isNaN(v) && v > 0);
+    if (!values.length || !paramKey) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await sweepExperiment(experiment.id, paramKey, values);
+      onResult(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sweep failed");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  if (params.length === 0) {
+    return (
+      <div className="sweep-panel">
+        <p className="muted-note">No sweep parameters available for {kind}.</p>
+      </div>
+    );
+  }
+
+  const maxReturn = result
+    ? Math.max(...result.sweep.filter((p) => p.metrics).map((p) => p.metrics!.total_return))
+    : 0;
+
+  return (
+    <div className="sweep-panel">
+      <div className="sweep-form">
+        <label className="field">
+          <span>Parameter</span>
+          <select
+            value={paramKey}
+            onChange={(e) => {
+              setParamKey(e.target.value);
+              const p = params.find((x) => x.key === e.target.value);
+              if (p) setValuesStr(p.defaultValues);
+            }}
+          >
+            {params.map((p) => (
+              <option key={p.key} value={p.key}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Values (comma-separated)</span>
+          <input value={valuesStr} onChange={(e) => setValuesStr(e.target.value)} />
+        </label>
+        <button className="btn primary" disabled={running} onClick={() => void handleSweep()}>
+          {running ? <Loader size={14} className="spin" /> : null}
+          {running ? "Running sweep…" : "Run sweep"}
+        </button>
+        {error && <p className="sweep-error">{error}</p>}
+      </div>
+
+      {result && (
+        <div className="sweep-results">
+          <p className="sect-label metrics-label">
+            Sweep: {result.param} — {result.sweep.length} runs
+          </p>
+          <table className="sweep-table">
+            <thead>
+              <tr>
+                <th>{result.param}</th>
+                <th>Total return</th>
+                <th>Ann. return</th>
+                <th>Sharpe</th>
+                <th>Max DD</th>
+                <th>Turnover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.sweep.map((pt) => {
+                const m = pt.metrics;
+                const best = m && m.total_return === maxReturn;
+                return (
+                  <tr key={pt.param_value} className={best ? "sweep-best" : ""}>
+                    <td>{pt.param_value}</td>
+                    {m ? (
+                      <>
+                        <td className={m.total_return >= 0 ? "pos" : "neg"}>
+                          {m.total_return >= 0 ? "+" : ""}{(m.total_return * 100).toFixed(2)}%
+                        </td>
+                        <td>{(m.annualized_return * 100).toFixed(2)}%</td>
+                        <td>{m.sharpe != null ? m.sharpe.toFixed(2) : "—"}</td>
+                        <td className="neg">{(m.max_drawdown * 100).toFixed(2)}%</td>
+                        <td>{m.turnover.toFixed(1)}×</td>
+                      </>
+                    ) : (
+                      <td colSpan={5} className="muted-note">{pt.error ?? "failed"}</td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -280,182 +504,4 @@ function describeReadableBlock(block: Record<string, unknown>) {
     return `If ${condition.left.ref} ${condition.operator} ${condition.right.ref}, set ${thenAction.symbol} to ${thenAction.weight}; otherwise cash ${elseAction.weight}.`;
   }
   return String(block.id);
-}
-
-function RuleBlockEditor({
-  block,
-  index,
-  onChange,
-  universe,
-}: {
-  block: Record<string, unknown>;
-  index: number;
-  onChange: (patch: Record<string, unknown>) => void;
-  universe: string[];
-}) {
-  if (block.type === "indicator") {
-    return (
-      <article className="rule-node">
-        <div className="node-index">{index + 1}</div>
-        <div className="node-body">
-          <div className="node-title">
-            <span>Indicator</span>
-            <strong>{String(block.indicator)}</strong>
-          </div>
-          {block.indicator === "moving_average" ? (
-            <div className="node-grid">
-              <label className="field">
-                <span>Symbol</span>
-                <select value={String(block.symbol)} onChange={(event) => onChange({ symbol: event.target.value })}>
-                  {universe.map((symbol) => (
-                    <option key={symbol} value={symbol}>
-                      {symbol}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>Window</span>
-                <input
-                  min="1"
-                  type="number"
-                  value={Number(block.window ?? 1)}
-                  onChange={(event) => onChange({ window: Number(event.target.value) })}
-                />
-              </label>
-            </div>
-          ) : (
-            <div className="node-grid">
-              <label className="field">
-                <span>Lookback months</span>
-                <input
-                  min="1"
-                  type="number"
-                  value={Number(block.lookback_months ?? 1)}
-                  onChange={(event) => onChange({ lookback_months: Number(event.target.value) })}
-                />
-              </label>
-            </div>
-          )}
-        </div>
-      </article>
-    );
-  }
-
-  if (block.type === "condition") {
-    const condition = block.if as {
-      left: { ref: string };
-      operator: string;
-      right: { ref: string };
-    };
-    const thenAction = Array.isArray(block.then) ? (block.then[0] as Record<string, unknown>) : {};
-    const elseAction = Array.isArray(block.else) ? (block.else[0] as Record<string, unknown>) : {};
-    return (
-      <article className="rule-node condition-node">
-        <div className="node-index">{index + 1}</div>
-        <div className="node-body">
-          <div className="node-title">
-            <span>Condition</span>
-            <strong>if / then / else</strong>
-          </div>
-          <div className="condition-line">
-            <code>{condition.left.ref}</code>
-            <select
-              value={condition.operator}
-              onChange={(event) =>
-                onChange({ if: { ...condition, operator: event.target.value } })
-              }
-            >
-              <option value=">">&gt;</option>
-              <option value="<">&lt;</option>
-              <option value=">=">&gt;=</option>
-              <option value="<=">&lt;=</option>
-            </select>
-            <code>{condition.right.ref}</code>
-          </div>
-          <div className="node-grid">
-            <label className="field">
-              <span>Then symbol</span>
-              <select
-                value={String(thenAction.symbol ?? universe[0] ?? "")}
-                onChange={(event) =>
-                  onChange({
-                    then: [{ ...thenAction, action: "set_weight", symbol: event.target.value }],
-                  })
-                }
-              >
-                {universe.map((symbol) => (
-                  <option key={symbol} value={symbol}>
-                    {symbol}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Then weight</span>
-              <input
-                max="1"
-                min="0"
-                step="0.05"
-                type="number"
-                value={Number(thenAction.weight ?? 1)}
-                onChange={(event) =>
-                  onChange({
-                    then: [{ ...thenAction, action: "set_weight", weight: Number(event.target.value) }],
-                  })
-                }
-              />
-            </label>
-            <label className="field">
-              <span>Else cash</span>
-              <input
-                max="1"
-                min="0"
-                step="0.05"
-                type="number"
-                value={Number(elseAction.weight ?? 1)}
-                onChange={(event) =>
-                  onChange({
-                    else: [{ action: "set_cash", weight: Number(event.target.value) }],
-                  })
-                }
-              />
-            </label>
-          </div>
-        </div>
-      </article>
-    );
-  }
-
-  return (
-    <article className="rule-node">
-      <div className="node-index">{index + 1}</div>
-      <div className="node-body">
-        <div className="node-title">
-          <span>Allocation</span>
-          <strong>target weights</strong>
-        </div>
-        <div className="node-grid">
-          {universe.map((symbol) => {
-            const weights = (block.weights as Record<string, number>) ?? {};
-            return (
-              <label className="field" key={symbol}>
-                <span>{symbol} weight</span>
-                <input
-                  max="1"
-                  min="0"
-                  step="0.05"
-                  type="number"
-                  value={Number(weights[symbol] ?? 0)}
-                  onChange={(event) =>
-                    onChange({ weights: { ...weights, [symbol]: Number(event.target.value) } })
-                  }
-                />
-              </label>
-            );
-          })}
-        </div>
-      </div>
-    </article>
-  );
 }

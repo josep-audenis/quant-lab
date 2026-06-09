@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Mapping
 
 from .domain import Bar, DomainError, StrategyProgram
@@ -43,19 +43,45 @@ def interpret_program(
         raise DomainError("No common market data dates for strategy program")
 
     indicator_values = _compute_indicators(program, market_data)
-    allocation = next((block for block in program.blocks if block["type"] == "allocation"), None)
-    condition = next((block for block in program.blocks if block["type"] == "condition"), None)
 
     targets: list[TargetWeights] = []
     for as_of in dates:
-        if allocation is not None:
-            targets.append(TargetWeights(as_of=as_of, weights=dict(allocation["weights"]), cash=0.0))
-            continue
-        if condition is None:
-            raise DomainError("Strategy program needs allocation or condition block")
-        branch = condition["then"] if _evaluate_condition(condition["if"], as_of, market_data, indicator_values) else condition["else"]
-        targets.append(_actions_to_target(as_of, branch))
+        tw = _execute_blocks(program, as_of, market_data, indicator_values)
+        if tw is not None:
+            targets.append(tw)
     return targets
+
+
+def _execute_blocks(
+    program: StrategyProgram,
+    as_of: date,
+    market_data: Mapping[str, tuple[Bar, ...]],
+    indicator_values: Mapping[str, Mapping[date, float]],
+) -> TargetWeights | None:
+    for block in program.blocks:
+        btype = block["type"]
+        if btype == "allocation":
+            # If ranking_ref is present this is a dynamic momentum allocation
+            ranking_ref = block.get("ranking_ref")
+            if ranking_ref and ranking_ref in indicator_values:
+                ranked = indicator_values[ranking_ref]
+                top_n = int(block.get("top_n", 1))
+                symbols = [s for s in program.universe if ranked.get(as_of) is not None]
+                # ranked stores per-symbol returns keyed by (symbol, date) — see _compute_indicators
+                per_symbol = indicator_values.get(f"{ranking_ref}__per_symbol", {})
+                if per_symbol:
+                    scores = {s: per_symbol.get(s, {}).get(as_of) for s in program.universe}
+                    valid = {s: v for s, v in scores.items() if v is not None}
+                    if valid:
+                        top = sorted(valid, key=lambda s: valid[s], reverse=True)[:top_n]
+                        w = 1.0 / len(top)
+                        return TargetWeights(as_of=as_of, weights={s: w for s in top}, cash=0.0)
+            return TargetWeights(as_of=as_of, weights=dict(block["weights"]), cash=0.0)
+        if btype == "condition":
+            cond_val = _evaluate_condition(block["if"], as_of, market_data, indicator_values)
+            branch = block["then"] if cond_val else block["else"]
+            return _actions_to_target(as_of, branch)
+    return None
 
 
 def buy_and_hold_program(universe: tuple[str, ...]) -> StrategyProgram:
@@ -221,6 +247,7 @@ def _compute_indicators(
     for block in program.blocks:
         if block["type"] != "indicator":
             continue
+        block_id = str(block["id"])
         if block["indicator"] == "moving_average":
             symbol = str(block["symbol"])
             window = int(block["window"])
@@ -231,7 +258,42 @@ def _compute_indicators(
                     continue
                 sample = bars[index + 1 - window : index + 1]
                 values[bar.as_of] = sum(item.close for item in sample) / window
-            output[str(block["id"])] = values
+            output[block_id] = values
+        elif block["indicator"] == "momentum_return":
+            symbols = [str(s) for s in block.get("symbols", [])]
+            lookback_months = int(block.get("lookback_months", 12))
+            # Compute trailing return per symbol per date
+            per_symbol: dict[str, dict[date, float]] = {}
+            for sym in symbols:
+                bars_sym = sorted(market_data.get(sym, ()), key=lambda b: b.as_of)
+                price_map = {b.as_of: b.close for b in bars_sym}
+                sym_values: dict[date, float] = {}
+                for bar in bars_sym:
+                    lookback_date = date(
+                        bar.as_of.year - (lookback_months // 12),
+                        ((bar.as_of.month - 1 - lookback_months % 12) % 12) + 1,
+                        1,
+                    ) if lookback_months >= 12 else bar.as_of.replace(day=1) - timedelta(days=lookback_months * 30)
+                    # Find closest available price at or before lookback_date
+                    past_price = None
+                    for candidate in reversed(bars_sym):
+                        if candidate.as_of <= lookback_date:
+                            past_price = candidate.close
+                            break
+                    if past_price and past_price > 0:
+                        sym_values[bar.as_of] = (price_map[bar.as_of] - past_price) / past_price
+                per_symbol[sym] = sym_values
+            # Aggregate: store average return as the indicator value (for reference)
+            all_dates_set: set[date] = set()
+            for sv in per_symbol.values():
+                all_dates_set |= sv.keys()
+            agg: dict[date, float] = {}
+            for d in all_dates_set:
+                vals = [per_symbol[s][d] for s in symbols if d in per_symbol.get(s, {})]
+                if vals:
+                    agg[d] = sum(vals) / len(vals)
+            output[block_id] = agg
+            output[f"{block_id}__per_symbol"] = per_symbol  # type: ignore[assignment]
     return output
 
 

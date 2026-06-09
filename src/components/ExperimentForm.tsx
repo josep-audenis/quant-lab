@@ -1,18 +1,20 @@
-import { ArrowLeft, ArrowRight, Check, Info, Play, Plus, Search, X, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Info, Play, Plus, Search, Sparkles, X, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { DraftExperimentPayload, ExperimentSummary } from "../api/experiments";
+import { RuleBuilder, type Block } from "./RuleBuilder";
 
 type ExperimentFormMode = "create" | "edit";
 type Step = "universe" | "strategy" | "config";
 type PresetId = "single" | "sectors" | "macro";
-type TemplateId = "ma-timing" | "momentum";
+type TemplateId = "ma-timing" | "momentum" | "custom";
 
 type ExperimentFormProps = {
   experiment: ExperimentSummary | null;
   mode: ExperimentFormMode;
   onCancel: () => void;
   onSubmit: (payload: DraftExperimentPayload) => void;
+  onSubmitCustom: (experiment: ExperimentSummary) => void;
 };
 
 const tickers = [
@@ -37,6 +39,7 @@ const presets: Array<{ id: PresetId; nm: string; ds: string; set: string[] }> = 
 const templates: Array<{ id: TemplateId; nm: string; ds: string }> = [
   { id: "ma-timing", nm: "Trend timing", ds: "Hold when above moving average" },
   { id: "momentum", nm: "Cross-sectional momentum", ds: "Rotate into recent winners" },
+  { id: "custom", nm: "Custom rules", ds: "Build your own block logic" },
 ];
 
 const emptyPayload: DraftExperimentPayload = {
@@ -59,6 +62,8 @@ const emptyPayload: DraftExperimentPayload = {
   cash_policy: "hold_cash",
   risk_free_rate: 0.02,
   notes: "",
+  use_adjusted: true,
+  oos_start_date: "",
 };
 
 export function experimentToForm(experiment: ExperimentSummary | null): DraftExperimentPayload {
@@ -87,10 +92,12 @@ export function experimentToForm(experiment: ExperimentSummary | null): DraftExp
     cash_policy: experiment.backtest.cash_policy,
     risk_free_rate: experiment.backtest.risk_free_rate,
     notes: experiment.notes ?? "",
+    use_adjusted: experiment.backtest.use_adjusted ?? true,
+    oos_start_date: experiment.backtest.oos_start_date ?? "",
   };
 }
 
-export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: ExperimentFormProps) {
+export function ExperimentForm({ experiment, mode, onCancel, onSubmit, onSubmitCustom }: ExperimentFormProps) {
   const initial = experimentToForm(experiment);
   const [step, setStep] = useState<Step>("universe");
   const [universe, setUniverse] = useState(() => splitSymbols(initial.universe));
@@ -107,7 +114,10 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: Experim
   const [commission, setCommission] = useState(initial.commission_bps);
   const [slippage, setSlippage] = useState(initial.slippage_bps);
   const [cashYield, setCashYield] = useState(initial.risk_free_rate * 100);
+  const [useAdjusted, setUseAdjusted] = useState(initial.use_adjusted);
+  const [oosStartDate, setOosStartDate] = useState(initial.oos_start_date);
   const [query, setQuery] = useState("");
+  const [customBlocks, setCustomBlocks] = useState<Block[]>(() => seedCustomBlocks(splitSymbols(initial.universe)));
 
   const selectedRows = universe.map((symbol) => tickers.find((ticker) => ticker.t === symbol) ?? fallbackTicker(symbol));
   const searchResults = useMemo(() => {
@@ -120,7 +130,50 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: Experim
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (template === "custom") {
+      onSubmitCustom(toCustomExperiment());
+      return;
+    }
     onSubmit(toPayload());
+  }
+
+  function toCustomExperiment(): ExperimentSummary {
+    const now = new Date().toISOString();
+    const benchmarkSymbol = benchmark === "Cash" ? "BIL" : "SPY";
+    const rebalanceFreq = rebalance === "Weekly" ? "weekly" : rebalance === "Monthly" ? "monthly" : "daily";
+    return {
+      id: `exp_${Math.random().toString(16).slice(2, 14)}`,
+      name: `Custom rules: ${universe.join(", ")}`,
+      status: "draft",
+      hypothesis: "Custom block logic tested against the chosen benchmark after trading frictions.",
+      notes: "Authored with the visual rule builder.",
+      backtest: {
+        start_date: initial.start_date,
+        end_date: initial.end_date,
+        initial_capital: capital,
+        benchmark: benchmarkSymbol,
+        frequency: "daily",
+        rebalance_frequency: rebalanceFreq,
+        cost_model: { commission_bps: commission, slippage_bps: slippage, min_commission: 0 },
+        cash_policy: "hold_cash",
+        risk_free_rate: cashYield / 100,
+        use_adjusted: useAdjusted,
+        oos_start_date: oosStartDate || null,
+      },
+      created_at: now,
+      updated_at: now,
+      strategy: {
+        kind: "custom_rules",
+        universe,
+        parameters: {},
+        rules: [],
+      },
+      strategy_program: {
+        version: 1,
+        universe,
+        blocks: customBlocks,
+      },
+    };
   }
 
   function toPayload(): DraftExperimentPayload {
@@ -149,6 +202,8 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: Experim
       commission_bps: commission,
       slippage_bps: slippage,
       risk_free_rate: cashYield / 100,
+      use_adjusted: useAdjusted,
+      oos_start_date: oosStartDate,
       notes: `Template: ${template}. Out-of-market action: ${action}. Benchmark view: ${benchmark}.`,
     };
   }
@@ -343,7 +398,7 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: Experim
                 </div>
               </div>
             </div>
-          ) : (
+          ) : template === "momentum" ? (
             <div className="panel">
               <div className="panel-h"><h3>Rule logic</h3><span className="sub">Applied monthly to {universe.join(", ")}</span></div>
               <div className="panel-b">
@@ -368,12 +423,29 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: Experim
                 </div>
               </div>
             </div>
+          ) : (
+            <div className="panel">
+              <div className="panel-h split">
+                <h3>Custom rule logic</h3>
+                <span className="sub">Applied to {universe.join(", ")}</span>
+              </div>
+              <div className="panel-b">
+                <RuleBuilder blocks={customBlocks} universe={universe} onChange={setCustomBlocks} />
+              </div>
+            </div>
           )}
 
-          <div className="panel info-panel">
-            <Info size={18} />
-            <p><strong>Why this rule matters:</strong> it may not beat buy-and-hold on raw return, but can cut worst drawdowns. Question is whether investor could hold buy-and-hold through deep losses.</p>
-          </div>
+          {template === "custom" ? (
+            <div className="panel info-panel">
+              <Sparkles size={18} />
+              <p><strong>Free-form builder:</strong> chain indicators, branch on conditions, and set target weights. The compiled program is validated when you run the backtest.</p>
+            </div>
+          ) : (
+            <div className="panel info-panel">
+              <Info size={18} />
+              <p><strong>Why this rule matters:</strong> it may not beat buy-and-hold on raw return, but can cut worst drawdowns. Question is whether investor could hold buy-and-hold through deep losses.</p>
+            </div>
+          )}
         </section>
       ) : null}
 
@@ -430,9 +502,22 @@ export function ExperimentForm({ experiment, mode, onCancel, onSubmit }: Experim
               <RangeField label="Slippage" max={15} step={0.5} unit="bps / trade" value={slippage} onChange={setSlippage} />
               <RangeField label="Cash yield (when out)" max={6} step={0.25} unit="% annual" value={cashYield} onChange={setCashYield} />
               <div className="field">
-                <label>Dividends</label>
-                <div className="seg"><button className="on" type="button">Reinvested</button><button type="button">Ignored</button></div>
-                <div className="hint">Total-return series. Price-only understates buy-and-hold.</div>
+                <label>Adjusted prices</label>
+                <div className="seg">
+                  <button className={useAdjusted ? "on" : ""} type="button" onClick={() => setUseAdjusted(true)}>Adjusted</button>
+                  <button className={!useAdjusted ? "on" : ""} type="button" onClick={() => setUseAdjusted(false)}>Raw close</button>
+                </div>
+                <div className="hint">Adjusted accounts for splits and dividends.</div>
+              </div>
+              <div className="field">
+                <label>OOS split date <span className="hint">(optional)</span></label>
+                <input
+                  type="date"
+                  value={typeof oosStartDate === "string" ? oosStartDate : ""}
+                  onChange={(e) => setOosStartDate(e.target.value)}
+                  placeholder="YYYY-MM-DD"
+                />
+                <div className="hint">Dates after this are out-of-sample. Leave blank to skip.</div>
               </div>
             </div>
           </div>
@@ -518,6 +603,20 @@ function titleForStep(step: Step) {
 
 function splitSymbols(value: string) {
   return value.split(",").map((symbol) => symbol.trim().toUpperCase()).filter(Boolean);
+}
+
+function seedCustomBlocks(universe: string[]): Block[] {
+  const first = universe[0] ?? "SPY";
+  return [
+    { id: "ma_1", type: "indicator", indicator: "moving_average", symbol: first, window: 200, price: "close" },
+    {
+      id: "rule_1",
+      type: "condition",
+      if: { left: { ref: `${first}.close` }, operator: ">", right: { ref: "ma_1" } },
+      then: [{ action: "set_weight", symbol: first, weight: 1 }],
+      else: [{ action: "set_cash", weight: 1 }],
+    },
+  ];
 }
 
 function fallbackTicker(symbol: string) {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,9 @@ from .domain import (
     StrategyKind,
     to_primitive,
 )
+from .engine import run_backtest
 from .json_codec import experiment_from_json, experiment_to_json
+from .market_data import MarketDataFetcher
 from .programs import (
     buy_and_hold_program,
     momentum_rotation_program,
@@ -32,11 +35,17 @@ from .storage import ExperimentJsonStore, ExperimentNotFoundError
 
 
 DEFAULT_EXPERIMENT_ROOT = Path("data/experiments")
+DEFAULT_MARKET_CACHE_ROOT = Path("data/market_cache")
 
 
-def create_app(store: ExperimentJsonStore | None = None) -> FastAPI:
+def create_app(
+    store: ExperimentJsonStore | None = None,
+    fetcher: MarketDataFetcher | None = None,
+) -> FastAPI:
     app = FastAPI(title="QuantLab API", version="0.1.0")
     app.state.store = store or ExperimentJsonStore(DEFAULT_EXPERIMENT_ROOT)
+    app.state.fetcher = fetcher or MarketDataFetcher(DEFAULT_MARKET_CACHE_ROOT)
+    app.state.run_jobs: dict[str, dict[str, Any]] = {}
 
     app.add_middleware(
         CORSMiddleware,
@@ -128,6 +137,147 @@ def create_app(store: ExperimentJsonStore | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found") from exc
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    @app.post("/experiments/{experiment_id}/run", status_code=status.HTTP_200_OK)
+    def run_experiment(experiment_id: str) -> dict[str, Any]:
+        try:
+            experiment = app.state.store.get(experiment_id)
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found") from exc
+
+        experiment = _ensure_strategy_program(experiment)
+        program = experiment.strategy_program
+        assert program is not None
+
+        all_symbols = list(program.universe)
+        if experiment.backtest.benchmark not in all_symbols:
+            all_symbols.append(experiment.backtest.benchmark)
+
+        try:
+            market_data_series = app.state.fetcher.fetch_many(
+                tuple(all_symbols),
+                experiment.backtest.start_date,
+                experiment.backtest.end_date,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Market data fetch failed: {exc}") from exc
+
+        market_data = {symbol: series.bars for symbol, series in market_data_series.items()}
+
+        try:
+            result = run_backtest(experiment, market_data)
+        except DomainError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+        now = datetime.now(UTC)
+        updated = replace(
+            experiment,
+            status=ExperimentStatus.COMPLETED,
+            result=result,
+            updated_at=now,
+        )
+        saved = app.state.store.save(updated)
+        return {"experiment": to_primitive(saved)}
+
+    @app.post("/experiments/{experiment_id}/run/async", status_code=status.HTTP_202_ACCEPTED)
+    def run_experiment_async(experiment_id: str) -> dict[str, Any]:
+        try:
+            experiment = app.state.store.get(experiment_id)
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found") from exc
+
+        experiment = _ensure_strategy_program(experiment)
+        program = experiment.strategy_program
+        assert program is not None
+
+        job_id = f"job_{uuid4().hex[:8]}"
+        app.state.run_jobs[job_id] = {"status": "running", "stage": "starting"}
+
+        def _run() -> None:
+            try:
+                all_symbols = list(program.universe)
+                if experiment.backtest.benchmark not in all_symbols:
+                    all_symbols.append(experiment.backtest.benchmark)
+
+                app.state.run_jobs[job_id]["stage"] = "fetching_data"
+                market_data_series = app.state.fetcher.fetch_many(
+                    tuple(all_symbols),
+                    experiment.backtest.start_date,
+                    experiment.backtest.end_date,
+                )
+                market_data = {sym: series.bars for sym, series in market_data_series.items()}
+
+                app.state.run_jobs[job_id]["stage"] = "simulating"
+                result = run_backtest(experiment, market_data)
+
+                app.state.run_jobs[job_id]["stage"] = "saving"
+                now = datetime.now(UTC)
+                updated = replace(
+                    experiment,
+                    status=ExperimentStatus.COMPLETED,
+                    result=result,
+                    updated_at=now,
+                )
+                saved = app.state.store.save(updated)
+                app.state.run_jobs[job_id] = {"status": "completed", "experiment": to_primitive(saved)}
+            except Exception as exc:
+                app.state.run_jobs[job_id] = {"status": "failed", "error": str(exc)}
+
+        threading.Thread(target=_run, daemon=True).start()
+        return {"job_id": job_id, "status": "running"}
+
+    @app.get("/experiments/{experiment_id}/run-status/{job_id}")
+    def run_job_status(experiment_id: str, job_id: str) -> dict[str, Any]:
+        job = app.state.run_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        return job
+
+    @app.post("/experiments/{experiment_id}/sweep", status_code=status.HTTP_200_OK)
+    def sweep_experiment(experiment_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            experiment = app.state.store.get(experiment_id)
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found") from exc
+
+        param = payload.get("param")
+        values = payload.get("values", [])
+        if not param or not values:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="param and values are required")
+
+        experiment = _ensure_strategy_program(experiment)
+        all_symbols = list(experiment.strategy.universe)
+        if experiment.backtest.benchmark not in all_symbols:
+            all_symbols.append(experiment.backtest.benchmark)
+
+        try:
+            market_data_series = app.state.fetcher.fetch_many(
+                tuple(all_symbols),
+                experiment.backtest.start_date,
+                experiment.backtest.end_date,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Market data fetch failed: {exc}") from exc
+
+        market_data = {sym: series.bars for sym, series in market_data_series.items()}
+
+        sweep_results: list[dict[str, Any]] = []
+        for val in values:
+            try:
+                new_params = dict(experiment.strategy.parameters)
+                new_params[param] = val
+                new_program = _strategy_program(experiment.strategy.kind, experiment.strategy.universe, new_params)
+                new_experiment = replace(
+                    experiment,
+                    strategy=replace(experiment.strategy, parameters=new_params),
+                    strategy_program=new_program,
+                )
+                result = run_backtest(new_experiment, market_data)
+                sweep_results.append({"param_value": val, "metrics": to_primitive(result.metrics)})
+            except (DomainError, Exception):
+                sweep_results.append({"param_value": val, "metrics": None, "error": f"Failed for {param}={val}"})
+
+        return {"param": param, "sweep": sweep_results}
+
     return app
 
 
@@ -163,6 +313,8 @@ def _build_draft_experiment(payload: dict[str, Any], existing: Experiment | None
                 ),
                 cash_policy=CashPolicy(payload.get("cash_policy", CashPolicy.HOLD_CASH.value)),
                 risk_free_rate=_float(payload.get("risk_free_rate", 0.0)),
+                use_adjusted=bool(payload.get("use_adjusted", True)),
+                oos_start_date=date.fromisoformat(payload["oos_start_date"]) if payload.get("oos_start_date") else None,
             ),
             created_at=existing.created_at if existing else now,
             updated_at=now,

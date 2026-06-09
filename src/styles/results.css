@@ -1,0 +1,428 @@
+
+.warnings-section {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.metrics-label {
+  margin-bottom: 16px;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.assumption-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.assumption-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.assumption-item span {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.assumption-item strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.provenance-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.provenance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.provenance-table th,
+.provenance-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.provenance-table th {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.provenance-table tr:last-child td {
+  border-bottom: none;
+}
+
+.metric-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, var(--panel), var(--bg-2));
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.metric-card:hover {
+  border-color: var(--line-2);
+  box-shadow: 0 8px 28px -8px rgba(0, 0, 0, 0.5);
+}
+
+.metric-card.metric-pos {
+  border-top-color: rgba(76, 223, 136, 0.55);
+}
+
+.metric-card.metric-neg {
+  border-top-color: rgba(255, 94, 94, 0.55);
+}
+
+.metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.metric-icon-badge {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+
+.metric-icon-badge.pos {
+  background: rgba(76, 223, 136, 0.12);
+  color: #4cdf88;
+}
+
+.metric-icon-badge.neg {
+  background: rgba(255, 94, 94, 0.12);
+  color: #ff5e5e;
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.metric-value.pos {
+  color: #4cdf88;
+}
+
+.metric-value.neg {
+  color: #ff5e5e;
+}
+
+.metric-sub {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+/* --- Standalone color helpers -------------------------------------------- */
+
+.pos {
+  color: #4cdf88;
+}
+
+.neg {
+  color: #ff5e5e;
+}
+
+/* --- Equity chart --------------------------------------------------------- */
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.chart-header .metrics-label {
+  margin-bottom: 0;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.legend-strategy::before {
+  background: var(--accent);
+}
+
+.legend-benchmark::before {
+  background: #4cdf88;
+  opacity: 0.7;
+}
+
+.chart-wrap {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.equity-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-tick {
+  fill: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* --- Warnings ------------------------------------------------------------- */
+
+.warnings-list {
+  display: grid;
+  gap: 8px;
+}
+
+.warning-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.warning-chip svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.sev-danger {
+  border: 1px solid rgba(255, 94, 94, 0.3);
+  background: rgba(255, 94, 94, 0.08);
+  color: #ff8080;
+}
+
+.sev-caution {
+  border: 1px solid rgba(245, 181, 68, 0.3);
+  background: rgba(245, 181, 68, 0.07);
+  color: var(--warn);
+}
+
+.sev-info {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+}
+
+/* --- Run CTA / error ------------------------------------------------------ */
+
+.run-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px;
+  border: 1px solid rgba(77, 155, 255, 0.2);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(77, 155, 255, 0.07) 0%, rgba(77, 155, 255, 0.02) 100%);
+}
+
+.run-cta p {
+  color: var(--muted);
+  font-size: 13.5px;
+  max-width: 480px;
+}
+
+.run-error {
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(255, 94, 94, 0.3);
+  background: rgba(255, 94, 94, 0.08);
+  color: #ff8080;
+  font-size: 13px;
+}
+
+/* --- Spin animation ------------------------------------------------------- */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* --- Active tab button ---------------------------------------------------- */
+
+.btn.active-tab {
+  border-color: rgba(77, 155, 255, 0.4);
+  background: var(--accent-glow);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77, 155, 255, 0.08);
+}
+
+/* --- Status chip in table ------------------------------------------------- */
+
+.status-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.status-completed {
+  border-color: rgba(76, 223, 136, 0.3);
+  background: rgba(76, 223, 136, 0.07);
+  color: #4cdf88;
+}
+
+.status-running {
+  border-color: rgba(245, 181, 68, 0.3);
+  background: rgba(245, 181, 68, 0.07);
+  color: var(--warn);
+}
+
+.status-failed {
+  border-color: rgba(255, 94, 94, 0.3);
+  background: rgba(255, 94, 94, 0.08);
+  color: #ff5e5e;
+}
+
+/* --- Workbench head flex fix ---------------------------------------------- */
+
+.workbench-head-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* --- Action separator ----------------------------------------------------- */
+
+.action-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+@media (max-width: 900px) {
+  body {
+    overflow: auto;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 54px;
+    padding: 10px 14px;
+  }
+
+  .topnav {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+  }
+
+  .hero,
+  .empty-state,
+  .table-row,
+  .experiment-workspace,
+  .wizard-grid,
+  .preset-grid,
+  .cfg-grid,
+  .workbench-grid,
+  .detail-grid,
+  .setup-grid,
+  .node-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-side {
+    position: static;
+  }
+
+  .stepper {
+    align-items: flex-start;
+    overflow-x: auto;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .span-2 {
+    grid-column: span 1;
+  }
+
+  .experiment-row,
+  .row-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .editor-screen {
+    animation: none;
+  }
+}
+
+/* --- Fills table ----------------------------------------------------------- */
+

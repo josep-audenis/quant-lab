@@ -41,3 +41,4 @@ tags:
 
 - Which external source should be ingested first: backtesting methodology paper, transaction cost reference, or data provider docs?
 - Should major implementation decisions become `wiki/syntheses/` pages automatically?
+

@@ -1,9 +1,10 @@
 import { ArrowLeft, Download, Loader, Pencil, Play, Save, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExperimentSummary, SweepResult } from "../api/experiments";
-import { sweepExperiment } from "../api/experiments";
 import { RuleBuilder, type Block } from "./RuleBuilder";
 import { ResultsPanel } from "./ResultsPanel";
+import { ExperimentDetail } from "./workbench/ExperimentDetail";
+import { SweepPanel } from "./workbench/SweepPanel";
 
 type RuleWorkbenchMode = "view" | "setup" | "rules" | "results" | "sweep";
 
@@ -11,12 +12,16 @@ type RuleWorkbenchProps = {
   experiment: ExperimentSummary;
   onDelete: (experiment: ExperimentSummary) => void;
   onExport: (experiment: ExperimentSummary) => void;
+  onExportTearSheet: (experiment: ExperimentSummary) => void;
   onClose: () => void;
   onRun: (experiment: ExperimentSummary) => Promise<ExperimentSummary>;
   onSave: (experiment: ExperimentSummary) => void;
+  onSaveVariant: (experiment: ExperimentSummary, parameters: Record<string, number>) => Promise<void>;
+  onWriteWiki: (experiment: ExperimentSummary) => Promise<void>;
+  onCaptureQuestion: (experiment: ExperimentSummary, question: string) => Promise<void>;
 };
 
-export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onRun, onSave }: RuleWorkbenchProps) {
+export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onExportTearSheet, onRun, onSave, onSaveVariant, onWriteWiki, onCaptureQuestion }: RuleWorkbenchProps) {
   const [draft, setDraft] = useState(experiment);
   const [mode, setMode] = useState<RuleWorkbenchMode>("view");
   const [running, setRunning] = useState(false);
@@ -89,6 +94,28 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onRun, 
             <Download size={15} />
             Export
           </button>
+          {draft.result && (
+            <button className="btn" onClick={() => onExportTearSheet(draft)}>
+              <Download size={15} />
+              Tear sheet
+            </button>
+          )}
+          {draft.result && (
+            <button className="btn" onClick={() => void onWriteWiki(draft)}>
+              Research memo
+            </button>
+          )}
+          {draft.result && (
+            <button
+              className="btn"
+              onClick={() => {
+                const question = window.prompt("Open question to file");
+                if (question?.trim()) void onCaptureQuestion(draft, question.trim());
+              }}
+            >
+              File question
+            </button>
+          )}
 
           {mode === "view" || mode === "results" ? (
             <>
@@ -157,7 +184,7 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onRun, 
       )}
 
       {mode === "sweep" ? (
-        <SweepPanel experiment={draft} result={sweepResult} onResult={setSweepResult} />
+        <SweepPanel experiment={draft} result={sweepResult} onResult={setSweepResult} onSaveVariant={onSaveVariant} />
       ) : mode === "results" && draft.result ? (
         <ResultsPanel
           result={draft.result}
@@ -266,425 +293,3 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onRun, 
   );
 }
 
-function ExperimentDetail({
-  experiment,
-  onRun,
-  running,
-}: {
-  experiment: ExperimentSummary;
-  onRun: () => void;
-  running: boolean;
-}) {
-  const blocks = experiment.strategy_program?.blocks ?? [];
-  const healthFlags = preRunHealthFlags(experiment);
-  return (
-    <section className="detail-screen">
-      <div className="detail-grid">
-        <div className="detail-card">
-          <p className="eyebrow">Hypothesis</p>
-          <h2>{experiment.hypothesis}</h2>
-        </div>
-        <div className="detail-card">
-          <p className="eyebrow">Strategy</p>
-          <dl>
-            <div>
-              <dt>Kind</dt>
-              <dd>{experiment.strategy.kind}</dd>
-            </div>
-            <div>
-              <dt>Universe</dt>
-              <dd>{experiment.strategy.universe.join(", ")}</dd>
-            </div>
-            <div>
-              <dt>Blocks</dt>
-              <dd>{blocks.length}</dd>
-            </div>
-          </dl>
-        </div>
-        <div className="detail-card">
-          <p className="eyebrow">Backtest</p>
-          <dl>
-            <div>
-              <dt>Window</dt>
-              <dd>
-                {experiment.backtest.start_date} {"->"} {experiment.backtest.end_date}
-              </dd>
-            </div>
-            <div>
-              <dt>Capital</dt>
-              <dd>${experiment.backtest.initial_capital.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Benchmark</dt>
-              <dd>{experiment.backtest.benchmark}</dd>
-            </div>
-            <div>
-              <dt>Execution</dt>
-              <dd>{executionLabel(experiment.backtest.execution_timing)}</dd>
-            </div>
-            <div>
-              <dt>Cash</dt>
-              <dd>{cashPolicyLabel(experiment.backtest.cash_policy, experiment.backtest.risk_free_rate)}</dd>
-            </div>
-            <div>
-              <dt>Turnover</dt>
-              <dd>Annualized</dd>
-            </div>
-          </dl>
-        </div>
-      </div>
-      {healthFlags.length > 0 && (
-        <section className="detail-card">
-          <p className="eyebrow">Pre-run data health</p>
-          <div className="warnings-list">
-            {healthFlags.map((flag) => (
-              <div className={`warning-chip sev-${flag.severity}`} key={flag.code}>
-                <span>{flag.message}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-      <section className="detail-card">
-        <p className="eyebrow">Rule blocks</p>
-        <div className="block-list">
-          {blocks.map((block) => (
-            <div className="rule-chip" key={String(block.id)}>
-              <span>{String(block.type)}</span>
-              <code>{describeReadableBlock(block)}</code>
-            </div>
-          ))}
-        </div>
-      </section>
-      {!experiment.result && (
-        <div className="run-cta">
-          <p>No results yet. Run the backtest to simulate this strategy against historical data.</p>
-          <button className="btn primary lg" disabled={running} onClick={onRun}>
-            {running ? <Loader size={15} className="spin" /> : <Play size={15} />}
-            {running ? "Running..." : "Run backtest"}
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-// --- Sweep panel -------------------------------------------------------------
-
-const SWEEP_PARAMS: Record<string, Array<{ key: string; label: string; defaultValues: string }>> = {
-  moving_average_filter: [{ key: "window", label: "MA window", defaultValues: "50,100,150,200,250,300" }],
-  momentum_rotation: [
-    { key: "lookback_months", label: "Lookback months", defaultValues: "3,6,9,12,18" },
-    { key: "top_n", label: "Top N", defaultValues: "1,2,3,4" },
-  ],
-  buy_and_hold: [],
-};
-
-function SweepPanel({
-  experiment,
-  result,
-  onResult,
-}: {
-  experiment: ExperimentSummary;
-  result: SweepResult | null;
-  onResult: (r: SweepResult) => void;
-}) {
-  const kind = experiment.strategy.kind;
-  const params = SWEEP_PARAMS[kind] ?? [];
-  const [paramKey, setParamKey] = useState(params[0]?.key ?? "");
-  const [valuesStr, setValuesStr] = useState(params[0]?.defaultValues ?? "");
-  const [useGrid, setUseGrid] = useState(params.length > 1);
-  const [paramBKey, setParamBKey] = useState(params[1]?.key ?? "");
-  const [valuesBStr, setValuesBStr] = useState(params[1]?.defaultValues ?? "");
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSweep() {
-    const values = valuesStr
-      .split(",")
-      .map((v) => Number(v.trim()))
-      .filter((v) => !Number.isNaN(v) && v > 0);
-    if (!values.length || !paramKey) return;
-    const valuesB = valuesBStr
-      .split(",")
-      .map((v) => Number(v.trim()))
-      .filter((v) => !Number.isNaN(v) && v > 0);
-    setRunning(true);
-    setError(null);
-    try {
-      const res = await sweepExperiment(
-        experiment.id,
-        paramKey,
-        values,
-        useGrid && paramBKey ? paramBKey : undefined,
-        useGrid && paramBKey ? valuesB : undefined,
-      );
-      onResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sweep failed");
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  if (params.length === 0) {
-    return (
-      <div className="sweep-panel">
-        <p className="muted-note">No sweep parameters available for {kind}.</p>
-      </div>
-    );
-  }
-
-  const maxReturn = result
-    ? Math.max(...result.sweep.filter((p) => p.metrics).map((p) => p.metrics!.total_return))
-    : 0;
-
-  return (
-    <div className="sweep-panel">
-      <div className="sweep-form">
-        <label className="field">
-          <span>Parameter</span>
-          <select
-            value={paramKey}
-            onChange={(e) => {
-              setParamKey(e.target.value);
-              const p = params.find((x) => x.key === e.target.value);
-              if (p) setValuesStr(p.defaultValues);
-              const nextSecond = params.find((x) => x.key !== e.target.value);
-              if (nextSecond) {
-                setParamBKey(nextSecond.key);
-                setValuesBStr(nextSecond.defaultValues);
-              }
-            }}
-          >
-            {params.map((p) => (
-              <option key={p.key} value={p.key}>{p.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Values (comma-separated)</span>
-          <input value={valuesStr} onChange={(e) => setValuesStr(e.target.value)} />
-        </label>
-        {params.length > 1 && (
-          <>
-            <label className="field checkbox-field">
-              <span>Heatmap grid</span>
-              <input type="checkbox" checked={useGrid} onChange={(e) => setUseGrid(e.target.checked)} />
-            </label>
-            {useGrid && (
-              <>
-                <label className="field">
-                  <span>Second parameter</span>
-                  <select
-                    value={paramBKey}
-                    onChange={(e) => {
-                      setParamBKey(e.target.value);
-                      const p = params.find((x) => x.key === e.target.value);
-                      if (p) setValuesBStr(p.defaultValues);
-                    }}
-                  >
-                    {params.filter((p) => p.key !== paramKey).map((p) => (
-                      <option key={p.key} value={p.key}>{p.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Second values</span>
-                  <input value={valuesBStr} onChange={(e) => setValuesBStr(e.target.value)} />
-                </label>
-              </>
-            )}
-          </>
-        )}
-        <button className="btn primary" disabled={running} onClick={() => void handleSweep()}>
-          {running ? <Loader size={14} className="spin" /> : null}
-          {running ? "Running sweep..." : "Run sweep"}
-        </button>
-        {error && <p className="sweep-error">{error}</p>}
-      </div>
-
-      {result && (
-        <div className="sweep-results">
-          <p className="sect-label metrics-label">
-            Sweep: {result.param}{result.param_b ? ` x ${result.param_b}` : ""} - {result.grid?.length ?? result.sweep.length} runs
-          </p>
-          {result.grid && result.param_b ? (
-            <SweepHeatmap result={result} />
-          ) : (
-            <SingleParamHeatmap result={result} />
-          )}
-          <table className="sweep-table">
-            <thead>
-              <tr>
-                <th>{result.param}</th>
-                <th>Total return</th>
-                <th>Ann. return</th>
-                <th>Sharpe</th>
-                <th>Max DD</th>
-                <th>Turnover</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.sweep.map((pt) => {
-                const m = pt.metrics;
-                const best = m && m.total_return === maxReturn;
-                return (
-                  <tr key={pt.param_value} className={best ? "sweep-best" : ""}>
-                    <td>{pt.param_value}</td>
-                    {m ? (
-                      <>
-                        <td className={m.total_return >= 0 ? "pos" : "neg"}>
-                          {m.total_return >= 0 ? "+" : ""}{(m.total_return * 100).toFixed(2)}%
-                        </td>
-                        <td>{(m.annualized_return * 100).toFixed(2)}%</td>
-                        <td>{m.sharpe != null ? m.sharpe.toFixed(2) : "-"}</td>
-                        <td className="neg">{(m.max_drawdown * 100).toFixed(2)}%</td>
-                        <td>{m.turnover.toFixed(1)}x</td>
-                      </>
-                    ) : (
-                      <td colSpan={5} className="muted-note">{pt.error ?? "failed"}</td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SingleParamHeatmap({ result }: { result: SweepResult }) {
-  const valid = result.sweep.filter((point) => point.metrics);
-  if (!valid.length) return null;
-  const min = Math.min(...valid.map((point) => point.metrics!.total_return));
-  const max = Math.max(...valid.map((point) => point.metrics!.total_return));
-  return (
-    <div className="heatmap-row">
-      {result.sweep.map((point) => (
-        <div
-          key={point.param_value}
-          className="heatmap-cell"
-          style={{ background: heatColor(point.metrics?.total_return ?? null, min, max) }}
-          title={`${result.param} ${point.param_value}`}
-        >
-          <span>{point.param_value}</span>
-          <strong>{point.metrics ? `${(point.metrics.total_return * 100).toFixed(1)}%` : "fail"}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SweepHeatmap({ result }: { result: SweepResult }) {
-  const grid = result.grid ?? [];
-  const xs = [...new Set(grid.map((point) => point.param_value))];
-  const ys = [...new Set(grid.map((point) => point.param_b_value))];
-  const valid = grid.filter((point) => point.metrics);
-  if (!valid.length) return null;
-  const min = Math.min(...valid.map((point) => point.metrics!.total_return));
-  const max = Math.max(...valid.map((point) => point.metrics!.total_return));
-  const lookup = new Map(grid.map((point) => [`${point.param_value}:${point.param_b_value}`, point]));
-  return (
-    <div className="heatmap-grid" style={{ gridTemplateColumns: `90px repeat(${xs.length}, minmax(70px, 1fr))` }}>
-      <div className="heatmap-axis">{result.param_b}</div>
-      {xs.map((x) => <div className="heatmap-axis" key={x}>{result.param} {x}</div>)}
-      {ys.map((y) => (
-        <Fragment key={y}>
-          <div className="heatmap-axis" key={`y-${y}`}>{y}</div>
-          {xs.map((x) => {
-            const point = lookup.get(`${x}:${y}`);
-            return (
-              <div
-                className="heatmap-cell"
-                key={`${x}-${y}`}
-                style={{ background: heatColor(point?.metrics?.total_return ?? null, min, max) }}
-              >
-                <strong>{point?.metrics ? `${(point.metrics.total_return * 100).toFixed(1)}%` : "fail"}</strong>
-              </div>
-            );
-          })}
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-function heatColor(value: number | null, min: number, max: number) {
-  if (value == null) return "rgba(255, 94, 94, 0.15)";
-  const t = max === min ? 0.5 : (value - min) / (max - min);
-  const red = Math.round(180 - t * 110);
-  const green = Math.round(80 + t * 150);
-  return `rgba(${red}, ${green}, 120, 0.35)`;
-}
-
-function describeReadableBlock(block: Record<string, unknown>) {
-  if (block.type === "allocation") {
-    const weights = block.weights as Record<string, number> | undefined;
-    if (weights) {
-      return Object.entries(weights)
-        .map(([symbol, weight]) => `${symbol}: ${(weight * 100).toFixed(0)}%`)
-        .join(", ");
-    }
-    return `Hold top ${block.top_n} ranked by ${block.ranking_ref}`;
-  }
-  if (block.type === "indicator") {
-    if (block.indicator === "moving_average") {
-      return `${block.symbol} close ${block.window}-period moving average`;
-    }
-    return `${block.lookback_months}-month momentum on ${(block.symbols as string[]).join(", ")}`;
-  }
-  if (block.type === "condition") {
-    const condition = block.if as {
-      left: { ref: string };
-      operator: string;
-      right: { ref: string };
-    };
-    const thenAction = Array.isArray(block.then) ? (block.then[0] as Record<string, unknown>) : {};
-    const elseAction = Array.isArray(block.else) ? (block.else[0] as Record<string, unknown>) : {};
-    return `If ${condition.left.ref} ${condition.operator} ${condition.right.ref}, set ${thenAction.symbol} to ${thenAction.weight}; otherwise cash ${elseAction.weight}.`;
-  }
-  return String(block.id);
-}
-
-function executionLabel(value: string) {
-  if (value === "next_open") return "Next open";
-  return "Same close";
-}
-
-function cashPolicyLabel(policy: string, riskFreeRate: number) {
-  if (policy === "risk_free_proxy") return `Risk-free proxy (${(riskFreeRate * 100).toFixed(2)}%)`;
-  if (policy === "benchmark_asset") return "Benchmark asset";
-  return "Hold cash";
-}
-
-function preRunHealthFlags(experiment: ExperimentSummary) {
-  const flags: Array<{ code: string; severity: "info" | "caution" | "danger"; message: string }> = [];
-  const start = new Date(experiment.backtest.start_date);
-  const end = new Date(experiment.backtest.end_date);
-  const years = (end.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-  if (years < 3) {
-    flags.push({ code: "short_window", severity: "caution", message: "Backtest window is under 3 years." });
-  }
-  if (!experiment.backtest.oos_start_date) {
-    flags.push({ code: "no_oos", severity: "caution", message: "No out-of-sample split configured." });
-  }
-  if (!experiment.backtest.use_adjusted) {
-    flags.push({ code: "raw_prices", severity: "danger", message: "Raw close ignores splits and dividends." });
-  }
-  const costs = experiment.backtest.cost_model.commission_bps + experiment.backtest.cost_model.slippage_bps;
-  if (costs >= 10) {
-    flags.push({ code: "high_costs", severity: "caution", message: `${costs} bps round-trip friction sensitivity risk.` });
-  }
-  if (experiment.strategy.universe.length < 5 && experiment.strategy.kind === "momentum_rotation") {
-    flags.push({ code: "small_universe", severity: "caution", message: "Small hand-picked universe can overstate rotation results." });
-  }
-  flags.push({
-    code: "survivorship",
-    severity: "info",
-    message: "ETF universe is user-selected, not point-in-time survivorship-safe.",
-  });
-  return flags;
-}

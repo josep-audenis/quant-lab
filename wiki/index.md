@@ -38,7 +38,7 @@ Persistent LLM-maintained knowledge base for `quant-lab`.
 
 ## Experiments
 
-- No experiment pages yet.
+- [[Priority 3 smoke]] - Generated experiment summary.
 
 ## Syntheses
 

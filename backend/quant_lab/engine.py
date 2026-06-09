@@ -1,36 +1,21 @@
 from __future__ import annotations
 
-import math
-from datetime import UTC, date, datetime
-from typing import Any, Mapping
+from datetime import UTC, datetime
+from typing import Mapping
 from uuid import uuid4
 
 from .domain import (
-    BacktestConfig,
     BacktestResult,
     Bar,
-    BenchmarkPoint,
-    CashPolicy,
-    CostModel,
     DomainError,
     Experiment,
-    ExperimentStatus,
-    ExecutionTiming,
-    Fill,
-    Frequency,
     MetricSet,
     OosAnalysis,
-    OrderSide,
-    PortfolioSnapshot,
-    RegimeResult,
-    RiskWarning,
-    RollingMetricPoint,
-    StrategyConfig,
-    StrategyProgram,
-    WarningSeverity,
 )
-from .programs import TargetWeights, interpret_program
-
+from .engine_metrics import benchmark_curve, compute_metrics, oos_analysis as build_oos_analysis, regime_results, rolling_metrics
+from .engine_risk import data_gap_warnings, portfolio_risk, risk_warnings
+from .engine_simulation import apply_rebalance_frequency, simulate
+from .programs import interpret_program
 
 def run_backtest(
     experiment: Experiment,
@@ -41,17 +26,17 @@ def run_backtest(
         raise DomainError("Experiment has no strategy_program")
 
     config = experiment.backtest
-    targets = _apply_rebalance_frequency(
+    targets = apply_rebalance_frequency(
         interpret_program(program, market_data),
         config.rebalance_frequency,
     )
     if not targets:
         raise DomainError("Strategy produced no target weights")
 
-    portfolio = _simulate(targets, market_data, config)
-    metrics = _compute_metrics(portfolio["snapshots"], portfolio["fills"], config, market_data)
-    benchmark_curve = _benchmark_curve(portfolio["snapshots"], market_data, config)
-    rolling_metrics = _rolling_metrics(portfolio["snapshots"], config, market_data)
+    portfolio = simulate(targets, market_data, config)
+    metrics = compute_metrics(portfolio["snapshots"], portfolio["fills"], config, market_data)
+    benchmark_points = benchmark_curve(portfolio["snapshots"], market_data, config)
+    rolling_points = rolling_metrics(portfolio["snapshots"], config, market_data)
 
     oos_metrics: MetricSet | None = None
     oos_analysis: OosAnalysis | None = None
@@ -61,14 +46,15 @@ def run_backtest(
         oos_snaps = [s for s in portfolio["snapshots"] if s.as_of >= config.oos_start_date]
         oos_fills = [f for f in portfolio["fills"] if f.as_of >= config.oos_start_date]
         if len(is_snaps) > 1 and len(oos_snaps) > 1:
-            is_metrics = _compute_metrics(is_snaps, is_fills, config, market_data)
-            oos_metrics = _compute_metrics(oos_snaps, oos_fills, config, market_data)
-            oos_analysis = _oos_analysis(config.oos_start_date, is_metrics, oos_metrics)
+            is_metrics = compute_metrics(is_snaps, is_fills, config, market_data)
+            oos_metrics = compute_metrics(oos_snaps, oos_fills, config, market_data)
+            oos_analysis = build_oos_analysis(config.oos_start_date, is_metrics, oos_metrics)
 
-    regime_results = _regime_results(portfolio["snapshots"], portfolio["fills"], config, market_data)
+    regimes = regime_results(portfolio["snapshots"], portfolio["fills"], config, market_data)
+    risk = portfolio_risk(portfolio["snapshots"], portfolio["fills"], experiment.strategy.universe, market_data)
     warnings = (
-        _risk_warnings(metrics, config, portfolio["snapshots"], oos_analysis)
-        + _data_gap_warnings(market_data, config)
+        risk_warnings(metrics, config, portfolio["snapshots"], oos_analysis)
+        + data_gap_warnings(market_data, config)
     )
 
     return BacktestResult(
@@ -80,521 +66,12 @@ def run_backtest(
         equity_curve=tuple(portfolio["snapshots"]),
         fills=tuple(portfolio["fills"]),
         warnings=tuple(warnings),
-        benchmark_curve=benchmark_curve,
+        benchmark_curve=benchmark_points,
         oos_metrics=oos_metrics,
-        rolling_metrics=rolling_metrics,
+        rolling_metrics=rolling_points,
         oos_analysis=oos_analysis,
-        regime_results=regime_results,
+        regime_results=regimes,
+        portfolio_risk=risk,
     )
 
 
-def _apply_rebalance_frequency(
-    targets: list[TargetWeights],
-    frequency: Frequency,
-) -> list[TargetWeights]:
-    if frequency == Frequency.DAILY:
-        return targets
-    filtered: list[TargetWeights] = []
-    last_key: tuple[int, int] | int | None = None
-    for tw in targets:
-        if frequency == Frequency.WEEKLY:
-            key: Any = tw.as_of.isocalendar()[:2]  # (year, week)
-        elif frequency == Frequency.MONTHLY:
-            key = (tw.as_of.year, tw.as_of.month)
-        elif frequency == Frequency.QUARTERLY:
-            key = (tw.as_of.year, (tw.as_of.month - 1) // 3)
-        else:
-            key = tw.as_of
-        if key != last_key:
-            filtered.append(tw)
-            last_key = key
-    return filtered
-
-
-def _simulate(
-    targets: list[TargetWeights],
-    market_data: Mapping[str, tuple[Bar, ...]],
-    config: BacktestConfig,
-) -> dict[str, Any]:
-    prices: dict[str, dict[date, float]] = {
-        symbol: {
-            bar.as_of: _bar_price(bar, config)
-            for bar in bars
-        }
-        for symbol, bars in market_data.items()
-    }
-    trade_prices: dict[str, dict[date, float]] = {
-        symbol: {
-            bar.as_of: (bar.open if config.execution_timing is ExecutionTiming.NEXT_OPEN else _bar_price(bar, config))
-            for bar in bars
-        }
-        for symbol, bars in market_data.items()
-    }
-    all_dates = sorted(
-        {d for price_map in prices.values() for d in price_map}
-    )
-
-    cash = config.initial_capital
-    positions: dict[str, float] = {}  # symbol -> shares
-    snapshots: list[PortfolioSnapshot] = []
-    fills: list[Fill] = []
-    peak_equity = config.initial_capital
-
-    target_map = _execution_target_map(targets, all_dates, config)
-    current_target: TargetWeights | None = None
-    current_weights: dict[str, float] = {}  # last known target weights for cash yield
-
-    for as_of in all_dates:
-        if as_of < config.start_date or as_of > config.end_date:
-            continue
-
-        is_rebalance_day = as_of in target_map
-        if is_rebalance_day:
-            current_target = target_map[as_of]
-
-        if current_target is None:
-            # Before first signal - stay in cash
-            equity = cash + _positions_value(positions, prices, as_of)
-            peak_equity = max(peak_equity, equity)
-            snapshots.append(_snapshot(as_of, cash, positions, prices, peak_equity))
-            continue
-
-        equity = cash + _positions_value(positions, prices, as_of)
-
-        # Only rebalance on signal days - eliminates noise fills between rebalances
-        if is_rebalance_day:
-            current_weights = _effective_weights(current_target, config, trade_prices, as_of)
-
-            for symbol, target_weight in current_weights.items():
-                price = trade_prices.get(symbol, {}).get(as_of)
-                if price is None:
-                    continue
-                target_value = equity * target_weight
-                current_shares = positions.get(symbol, 0.0)
-                current_value = current_shares * price
-                delta_value = target_value - current_value
-                if abs(delta_value) < max(1.0, equity * 0.001):
-                    continue
-                side = OrderSide.BUY if delta_value > 0 else OrderSide.SELL
-                fill_price = _fill_price(price, side, config.cost_model)
-                shares_delta = delta_value / fill_price
-                cost = _trade_cost(abs(delta_value), config.cost_model)
-                if shares_delta > 0:
-                    fills.append(Fill(
-                        symbol=symbol,
-                        as_of=as_of,
-                        side=OrderSide.BUY,
-                        quantity=shares_delta,
-                        price=fill_price,
-                        commission=cost,
-                        slippage=abs(fill_price - price) * shares_delta,
-                        reason="rebalance_to_target",
-                        target_weight=target_weight,
-                        signal_as_of=current_target.as_of,
-                        execution_timing=config.execution_timing,
-                    ))
-                    positions[symbol] = current_shares + shares_delta
-                    cash -= shares_delta * fill_price + cost
-                else:
-                    fills.append(Fill(
-                        symbol=symbol,
-                        as_of=as_of,
-                        side=OrderSide.SELL,
-                        quantity=abs(shares_delta),
-                        price=fill_price,
-                        commission=cost,
-                        slippage=abs(fill_price - price) * abs(shares_delta),
-                        reason="rebalance_to_target",
-                        target_weight=target_weight,
-                        signal_as_of=current_target.as_of,
-                        execution_timing=config.execution_timing,
-                    ))
-                    positions[symbol] = current_shares + shares_delta
-                    cash += abs(shares_delta) * fill_price - cost
-
-            # Liquidate positions no longer in target.
-            for symbol in list(positions):
-                if symbol not in current_weights or current_weights[symbol] == 0:
-                    price = prices.get(symbol, {}).get(as_of)
-                    trade_price = trade_prices.get(symbol, {}).get(as_of)
-                    if price and trade_price and positions.get(symbol, 0) > 0:
-                        qty = positions[symbol]
-                        fill_price = _fill_price(trade_price, OrderSide.SELL, config.cost_model)
-                        value = qty * fill_price
-                        cost = _trade_cost(value, config.cost_model)
-                        fills.append(Fill(
-                            symbol=symbol,
-                            as_of=as_of,
-                            side=OrderSide.SELL,
-                            quantity=qty,
-                            price=fill_price,
-                            commission=cost,
-                            slippage=abs(fill_price - trade_price) * qty,
-                            reason="liquidate_removed_target",
-                            target_weight=0.0,
-                            signal_as_of=current_target.as_of,
-                            execution_timing=config.execution_timing,
-                        ))
-                        cash += value - cost
-                        positions[symbol] = 0.0
-
-        # Cash yield (daily accrual on true cash balance)
-        if config.cash_policy is CashPolicy.RISK_FREE_PROXY and config.risk_free_rate > 0:
-            daily_rate = (1 + config.risk_free_rate) ** (1 / 252) - 1
-            invested = sum(
-                positions.get(s, 0) * (prices.get(s, {}).get(as_of) or 0)
-                for s in current_weights
-                if current_weights.get(s, 0) > 0
-            )
-            true_cash = max(0.0, equity - invested)
-            cash += true_cash * daily_rate
-
-        equity = cash + _positions_value(positions, prices, as_of)
-        peak_equity = max(peak_equity, equity)
-        snapshots.append(_snapshot(as_of, cash, positions, prices, peak_equity))
-
-    return {"snapshots": snapshots, "fills": fills}
-
-
-def _effective_weights(
-    target: TargetWeights,
-    config: BacktestConfig,
-    prices: dict[str, dict[date, float]],
-    as_of: date,
-) -> dict[str, float]:
-    weights = dict(target.weights)
-    if target.cash <= 0:
-        return weights
-    if config.cash_policy is CashPolicy.BENCHMARK_ASSET:
-        if prices.get(config.benchmark, {}).get(as_of) is None:
-            raise DomainError("Benchmark asset cash policy requires benchmark market data")
-        weights[config.benchmark] = weights.get(config.benchmark, 0.0) + target.cash
-    return weights
-
-
-def _execution_target_map(
-    targets: list[TargetWeights],
-    all_dates: list[date],
-    config: BacktestConfig,
-) -> dict[date, TargetWeights]:
-    if config.execution_timing is ExecutionTiming.SAME_CLOSE:
-        return {tw.as_of: tw for tw in targets}
-
-    target_map: dict[date, TargetWeights] = {}
-    date_index = {as_of: index for index, as_of in enumerate(all_dates)}
-    for target in targets:
-        index = date_index.get(target.as_of)
-        if index is None or index + 1 >= len(all_dates):
-            continue
-        target_map[all_dates[index + 1]] = target
-    return target_map
-
-
-def _positions_value(positions: dict[str, float], prices: dict[str, dict[date, float]], as_of: date) -> float:
-    total = 0.0
-    for symbol, shares in positions.items():
-        price = prices.get(symbol, {}).get(as_of)
-        if price:
-            total += shares * price
-    return total
-
-
-def _trade_cost(value: float, cost_model: CostModel) -> float:
-    bps_cost = value * cost_model.commission_bps / 10_000
-    return max(bps_cost, cost_model.min_commission)
-
-
-def _fill_price(mid_price: float, side: OrderSide, cost_model: CostModel) -> float:
-    slippage = cost_model.slippage_bps / 10_000
-    if side is OrderSide.BUY:
-        return mid_price * (1 + slippage)
-    return mid_price * (1 - slippage)
-
-
-def _snapshot(
-    as_of: date,
-    cash: float,
-    positions: dict[str, float],
-    prices: dict[str, dict[date, float]],
-    peak_equity: float,
-) -> PortfolioSnapshot:
-    positions_value = _positions_value(positions, prices, as_of)
-    equity = cash + positions_value
-    drawdown = (equity - peak_equity) / peak_equity if peak_equity > 0 else 0.0
-    exposure = positions_value / equity if equity > 0 else 0.0
-    return PortfolioSnapshot(
-        as_of=as_of,
-        equity=max(equity, 0.0),
-        cash=max(cash, 0.0),
-        positions_value=max(positions_value, 0.0),
-        drawdown=min(drawdown, 0.0),
-        exposure=min(max(exposure, 0.0), 1.0),
-    )
-
-
-def _compute_metrics(
-    snapshots: list[PortfolioSnapshot],
-    fills: list[Fill],
-    config: BacktestConfig,
-    market_data: Mapping[str, tuple[Bar, ...]],
-) -> MetricSet:
-    if not snapshots:
-        raise DomainError("No portfolio snapshots to compute metrics")
-
-    equities = [s.equity for s in snapshots]
-    total_return = (equities[-1] - equities[0]) / equities[0] if equities[0] > 0 else 0.0
-    n_days = (snapshots[-1].as_of - snapshots[0].as_of).days or 1
-    years = n_days / 365.25
-    annualized = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0.0
-
-    daily_returns = [
-        (equities[i] - equities[i - 1]) / equities[i - 1]
-        for i in range(1, len(equities))
-        if equities[i - 1] > 0
-    ]
-    vol = _std(daily_returns) * math.sqrt(252) if len(daily_returns) > 1 else 0.0
-    excess = [r - config.risk_free_rate / 252 for r in daily_returns]
-    sharpe = (_mean(excess) / _std(excess) * math.sqrt(252)) if _std(excess) > 0 else None
-    max_dd = min((s.drawdown for s in snapshots), default=0.0)
-
-    total_traded = sum(f.quantity * f.price for f in fills)
-    avg_equity = _mean(equities) if equities else 1.0
-    lifetime_turnover = total_traded / avg_equity if avg_equity > 0 else 0.0
-    turnover = lifetime_turnover / years if years > 0 else 0.0
-
-    avg_exposure = _mean([s.exposure for s in snapshots])
-
-    # Benchmark metrics
-    benchmark_total = None
-    benchmark_ann = None
-    bench_symbol = config.benchmark
-    bench_bars = market_data.get(bench_symbol)
-    if bench_bars:
-        bench_prices = {bar.as_of: _bar_price(bar, config) for bar in bench_bars}
-        start_dates = [s.as_of for s in snapshots]
-        if start_dates:
-            b_start = bench_prices.get(start_dates[0])
-            b_end = bench_prices.get(start_dates[-1])
-            if b_start and b_end and b_start > 0:
-                benchmark_total = (b_end - b_start) / b_start
-                benchmark_ann = (1 + benchmark_total) ** (1 / years) - 1 if years > 0 else 0.0
-
-    return MetricSet(
-        total_return=total_return,
-        annualized_return=annualized,
-        volatility=vol,
-        sharpe=sharpe,
-        max_drawdown=max_dd,
-        turnover=turnover,
-        exposure=avg_exposure,
-        benchmark_total_return=benchmark_total,
-        benchmark_annualized_return=benchmark_ann,
-    )
-
-
-def _rolling_metrics(
-    snapshots: list[PortfolioSnapshot],
-    config: BacktestConfig,
-    market_data: Mapping[str, tuple[Bar, ...]],
-) -> tuple[RollingMetricPoint, ...]:
-    windows = (("1y", 252), ("3y", 756))
-    points: list[RollingMetricPoint] = []
-    for label, size in windows:
-        if len(snapshots) < size + 1:
-            continue
-        step = max(1, size // 12)
-        indexes = list(range(size, len(snapshots), step))
-        if indexes[-1] != len(snapshots) - 1:
-            indexes.append(len(snapshots) - 1)
-        for idx in indexes:
-            window_snaps = snapshots[idx - size: idx + 1]
-            metrics = _compute_metrics(window_snaps, [], config, market_data)
-            points.append(RollingMetricPoint(
-                as_of=snapshots[idx].as_of,
-                window=label,
-                total_return=metrics.total_return,
-                annualized_return=metrics.annualized_return,
-                volatility=metrics.volatility,
-                sharpe=metrics.sharpe,
-                max_drawdown=metrics.max_drawdown,
-            ))
-    return tuple(points)
-
-
-def _oos_analysis(start_date: date, is_metrics: MetricSet, oos_metrics: MetricSet) -> OosAnalysis:
-    ann_delta = oos_metrics.annualized_return - is_metrics.annualized_return
-    sharpe_delta = None
-    if is_metrics.sharpe is not None and oos_metrics.sharpe is not None:
-        sharpe_delta = oos_metrics.sharpe - is_metrics.sharpe
-    max_dd_delta = oos_metrics.max_drawdown - is_metrics.max_drawdown
-    verdict = "stable"
-    if ann_delta < -0.05 or (sharpe_delta is not None and sharpe_delta < -0.5):
-        verdict = "degraded"
-    elif ann_delta > 0.05 and (sharpe_delta is None or sharpe_delta >= 0):
-        verdict = "improved"
-    return OosAnalysis(
-        start_date=start_date,
-        in_sample=is_metrics,
-        out_of_sample=oos_metrics,
-        annualized_return_delta=ann_delta,
-        sharpe_delta=sharpe_delta,
-        max_drawdown_delta=max_dd_delta,
-        verdict=verdict,
-    )
-
-
-def _regime_results(
-    snapshots: list[PortfolioSnapshot],
-    fills: list[Fill],
-    config: BacktestConfig,
-    market_data: Mapping[str, tuple[Bar, ...]],
-) -> tuple[RegimeResult, ...]:
-    regimes = (
-        ("Dot-com bust", date(2000, 3, 24), date(2002, 10, 9)),
-        ("Global financial crisis", date(2007, 10, 9), date(2009, 3, 9)),
-        ("COVID crash", date(2020, 2, 19), date(2020, 3, 23)),
-        ("Rate shock", date(2022, 1, 3), date(2022, 10, 12)),
-    )
-    results: list[RegimeResult] = []
-    for name, start, end in regimes:
-        regime_snaps = [s for s in snapshots if start <= s.as_of <= end]
-        if len(regime_snaps) < 2:
-            continue
-        regime_fills = [f for f in fills if start <= f.as_of <= end]
-        results.append(RegimeResult(
-            name=name,
-            start_date=regime_snaps[0].as_of,
-            end_date=regime_snaps[-1].as_of,
-            metrics=_compute_metrics(regime_snaps, regime_fills, config, market_data),
-        ))
-    return tuple(results)
-
-
-def _risk_warnings(
-    metrics: MetricSet,
-    config: BacktestConfig,
-    snapshots: list[PortfolioSnapshot],
-    oos_analysis: OosAnalysis | None = None,
-) -> list[RiskWarning]:
-    warnings: list[RiskWarning] = []
-    n_years = (snapshots[-1].as_of - snapshots[0].as_of).days / 365.25 if snapshots else 0
-    if n_years < 3:
-        warnings.append(RiskWarning(
-            code="short_window",
-            severity=WarningSeverity.CAUTION,
-            message=f"Backtest window is {n_years:.1f} years - too short for statistical confidence.",
-            evidence={"years": round(n_years, 2)},
-        ))
-    if metrics.max_drawdown < -0.4:
-        warnings.append(RiskWarning(
-            code="deep_drawdown",
-            severity=WarningSeverity.DANGER,
-            message=f"Max drawdown of {metrics.max_drawdown:.1%} is severe.",
-            evidence={"max_drawdown": round(metrics.max_drawdown, 4)},
-        ))
-    if metrics.turnover > 10:
-        warnings.append(RiskWarning(
-            code="high_turnover",
-            severity=WarningSeverity.CAUTION,
-            message=f"Annualised turnover ratio {metrics.turnover:.1f}x is high.",
-            evidence={"turnover": round(metrics.turnover, 2)},
-        ))
-    if config.oos_start_date is None:
-        warnings.append(RiskWarning(
-            code="no_oos_split",
-            severity=WarningSeverity.CAUTION,
-            message="No out-of-sample split configured.",
-            evidence={},
-        ))
-    elif oos_analysis and oos_analysis.verdict == "degraded":
-        warnings.append(RiskWarning(
-            code="oos_degradation",
-            severity=WarningSeverity.CAUTION,
-            message="Out-of-sample performance degraded versus in-sample.",
-            evidence={
-                "annualized_return_delta": round(oos_analysis.annualized_return_delta, 4),
-                "sharpe_delta": None if oos_analysis.sharpe_delta is None else round(oos_analysis.sharpe_delta, 4),
-            },
-        ))
-    total_cost_bps = config.cost_model.commission_bps + config.cost_model.slippage_bps
-    if total_cost_bps >= 10:
-        warnings.append(RiskWarning(
-            code="high_cost_assumption",
-            severity=WarningSeverity.CAUTION,
-            message=f"Trading friction assumption is {total_cost_bps:.1f} bps per trade.",
-            evidence={"cost_bps": round(total_cost_bps, 2)},
-        ))
-    if not config.use_adjusted:
-        warnings.append(RiskWarning(
-            code="raw_prices",
-            severity=WarningSeverity.DANGER,
-            message="Raw close ignores splits and dividends.",
-            evidence={},
-        ))
-    warnings.append(RiskWarning(
-        code="survivorship_user_universe",
-        severity=WarningSeverity.INFO,
-        message="Universe is user-selected, not point-in-time survivorship-safe.",
-        evidence={},
-    ))
-    return warnings
-
-
-def _benchmark_curve(
-    snapshots: list[PortfolioSnapshot],
-    market_data: Mapping[str, tuple[Bar, ...]],
-    config: BacktestConfig,
-) -> tuple[BenchmarkPoint, ...]:
-    bench_bars = market_data.get(config.benchmark)
-    if not bench_bars or not snapshots:
-        return ()
-    bench_prices = {bar.as_of: _bar_price(bar, config) for bar in bench_bars}
-    snap_dates = [s.as_of for s in snapshots]
-    b_start = bench_prices.get(snap_dates[0])
-    if not b_start or b_start <= 0:
-        return ()
-    # Forward-fill missing benchmark prices so curve length matches equity_curve
-    last_price = b_start
-    points: list[BenchmarkPoint] = []
-    for d in snap_dates:
-        p = bench_prices.get(d)
-        if p:
-            last_price = p
-        points.append(BenchmarkPoint(as_of=d, equity=config.initial_capital * last_price / b_start))
-    return tuple(points)
-
-
-def _bar_price(bar: Bar, config: BacktestConfig) -> float:
-    if config.use_adjusted and bar.adjusted_close is not None:
-        return bar.adjusted_close
-    return bar.close
-
-
-def _data_gap_warnings(
-    market_data: Mapping[str, tuple[Bar, ...]],
-    config: BacktestConfig,
-) -> list[RiskWarning]:
-    warnings: list[RiskWarning] = []
-    expected = max(1, (config.end_date - config.start_date).days * 252 // 365)
-    for symbol, bars in market_data.items():
-        actual = sum(1 for b in bars if config.start_date <= b.as_of <= config.end_date)
-        if actual / expected < 0.5:
-            warnings.append(RiskWarning(
-                code=f"sparse_data_{symbol.lower()}",
-                severity=WarningSeverity.CAUTION,
-                message=f"{symbol} has only {actual} of ~{expected} expected bars - possible data gap.",
-                evidence={"symbol": symbol, "bars": actual, "expected": expected},
-            ))
-    return warnings
-
-
-def _mean(values: list[float]) -> float:
-    return sum(values) / len(values) if values else 0.0
-
-
-def _std(values: list[float]) -> float:
-    if len(values) < 2:
-        return 0.0
-    m = _mean(values)
-    variance = sum((v - m) ** 2 for v in values) / (len(values) - 1)
-    return math.sqrt(variance)

@@ -1,0 +1,45 @@
+# Quant Lab Agent Docs
+
+Start: docs/index.md
+
+Purpose: interactive strategy research environment for retail investors. Helps users understand risk, overfitting, and regime dependence. Not a trading bot.
+
+Primary docs:
+- docs/Agent Orientation.md
+- docs/Project Overview.md
+- docs/Architecture.md
+- docs/Local Development.md
+- docs/Backend.md
+- docs/Frontend.md
+- docs/API Reference.md
+- docs/Data Model.md
+- docs/Strategy Engine.md
+- docs/Testing.md
+- docs/Knowledge Base.md
+- docs/Agent Playbooks.md
+
+Primary code:
+- backend/main.py
+- backend/quant_lab/api.py
+- backend/quant_lab/domain.py
+- backend/quant_lab/engine.py
+- backend/quant_lab/programs.py
+- backend/quant_lab/experiment_payloads.py
+- backend/quant_lab/result_enrichment.py
+- backend/quant_lab/wiki_exports.py
+- src/App.tsx
+- src/screens/LabsScreen.tsx
+- src/api/experiments.ts
+- src/api/types.ts
+
+Commands:
+- python -m uvicorn backend.main:app --host 127.0.0.1 --port 8011
+- pnpm dev -- --host 127.0.0.1 --port 5173
+- pytest
+- pnpm build
+
+Rules:
+- Read AGENTS.md before repo work.
+- Do not modify raw/ source content unless user asks.
+- Update docs/ when code behavior changes.
+- Update wiki/index.md and wiki/log.md after wiki ingest or major wiki edit.

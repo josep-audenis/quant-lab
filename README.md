@@ -19,6 +19,13 @@ This repo includes an LLM-maintained wiki pattern:
 - `wiki/log.md` is the append-only activity timeline.
 - `AGENTS.md` defines ingest, query, and lint workflows for future agent sessions.
 
+## Agent docs
+
+Agent-readable technical documentation lives in `docs/`.
+
+- `docs/index.md` is the docs catalog.
+- `docs/llms.txt` is the compact agent manifest.
+
 ## Local development
 
 Edit `.env` if you want custom ports.

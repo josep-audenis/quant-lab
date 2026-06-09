@@ -1,0 +1,322 @@
+:root {
+  --bg: #0a0d13;
+  --bg-2: #0e121a;
+  --panel: #121826;
+  --panel-2: #161d2d;
+  --panel-3: #1b2334;
+  --line: #232c3e;
+  --line-2: #2d374c;
+  --ink: #eaeef6;
+  --ink-2: #b7c0d0;
+  --muted: #818ca1;
+  --faint: #5a6477;
+  --accent: #4d9bff;
+  --accent-dim: #2c5d93;
+  --accent-glow: rgba(77, 155, 255, 0.16);
+  --warn: #f5b544;
+  --violet: #a689ff;
+  --radius: 9px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --shadow-lg: 0 24px 60px -22px rgba(0, 0, 0, 0.75);
+  --sans: "IBM Plex Sans", -apple-system, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+  --maxw: 1320px;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  overflow: hidden;
+  background: var(--bg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 46px,
+    linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 46px 100%;
+  opacity: 0.13;
+  mask-image: linear-gradient(180deg, transparent, #000 18%, #000 88%, transparent);
+}
+
+button,
+a {
+  color: inherit;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex: 0 0 54px;
+  align-items: center;
+  gap: 18px;
+  height: 54px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(14, 18, 26, 0.92), rgba(10, 13, 19, 0.88));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.logo {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(150deg, var(--accent), #2f6fd6);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset, 0 4px 18px -4px var(--accent), 0 0 0 5px var(--accent-glow);
+}
+
+.brand .tag,
+.eyebrow {
+  font-family: var(--mono);
+}
+
+.brand .tag {
+  padding: 1px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.topnav {
+  display: flex;
+  gap: 2px;
+  margin-left: 8px;
+}
+
+.topnav a {
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.topnav a:hover {
+  color: var(--ink-2);
+  background: var(--panel);
+}
+
+.topnav a.active {
+  color: var(--ink);
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.iconbtn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.iconbtn:hover {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--line);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, var(--violet), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.main::-webkit-scrollbar {
+  width: 11px;
+}
+
+.main::-webkit-scrollbar-thumb {
+  border: 3px solid var(--bg);
+  border-radius: 8px;
+  background: var(--line-2);
+}
+
+.wrap {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 30px 26px 80px;
+}
+
+.workspace-wrap {
+  max-width: 1480px;
+}
+
+.hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  max-width: 720px;
+  margin-top: 4px;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  background: linear-gradient(120deg, var(--ink) 40%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero p:last-child {
+  max-width: 540px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-weight: 600;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+.btn.primary {
+  border-color: var(--accent-dim);
+  background: linear-gradient(180deg, #5ca8ff, #326fce);
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--accent-glow), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #6eb6ff, #3a7de0);
+  box-shadow: 0 0 0 6px var(--accent-glow), 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.btn.danger {
+  border-color: rgba(255, 92, 108, 0.42);
+  color: #ff8b96;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: rgba(255, 92, 108, 0.1);
+  border-color: rgba(255, 92, 108, 0.6);
+}
+
+.btn.lg {
+  height: 42px;
+  padding: 0 18px;
+}
+
+.labs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13px;
+}

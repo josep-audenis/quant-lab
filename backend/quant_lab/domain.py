@@ -356,6 +356,108 @@ class RunProvenance:
 
 
 @dataclass(frozen=True)
+class DataReliability:
+    score: float
+    missing_bars: int
+    expected_bars: int
+    stale_symbols: tuple[str, ...] = ()
+    source_mismatches: tuple[str, ...] = ()
+    issues: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.score < 0 or self.score > 100:
+            raise DomainError("Data reliability score must be between 0 and 100")
+        _require_non_negative("missing_bars", self.missing_bars)
+        _require_non_negative("expected_bars", self.expected_bars)
+
+
+@dataclass(frozen=True)
+class PortfolioRisk:
+    max_exposure: float
+    average_exposure: float
+    top_traded_symbol: str | None = None
+    top_traded_share: float = 0.0
+    average_pairwise_correlation: float | None = None
+    high_correlation_pairs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_non_negative("max_exposure", self.max_exposure)
+        _require_non_negative("average_exposure", self.average_exposure)
+        _require_non_negative("top_traded_share", self.top_traded_share)
+
+
+@dataclass(frozen=True)
+class ReviewFlag:
+    code: str
+    severity: WarningSeverity
+    label: str
+    detail: str
+
+    def __post_init__(self) -> None:
+        if not self.code.strip():
+            raise DomainError("Review flag code cannot be empty")
+        if not self.label.strip():
+            raise DomainError("Review flag label cannot be empty")
+        if not self.detail.strip():
+            raise DomainError("Review flag detail cannot be empty")
+
+
+@dataclass(frozen=True)
+class ChecklistItem:
+    code: str
+    label: str
+    passed: bool
+    detail: str
+
+    def __post_init__(self) -> None:
+        if not self.code.strip():
+            raise DomainError("Checklist item code cannot be empty")
+        if not self.label.strip():
+            raise DomainError("Checklist item label cannot be empty")
+        if not self.detail.strip():
+            raise DomainError("Checklist item detail cannot be empty")
+
+
+@dataclass(frozen=True)
+class QuantReview:
+    credibility_score: float
+    decision: str
+    summary: str
+    flags: tuple[ReviewFlag, ...] = ()
+    checklist: tuple[ChecklistItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.credibility_score < 0 or self.credibility_score > 100:
+            raise DomainError("Credibility score must be between 0 and 100")
+        if not self.decision.strip():
+            raise DomainError("Quant review decision cannot be empty")
+        if not self.summary.strip():
+            raise DomainError("Quant review summary cannot be empty")
+
+
+@dataclass(frozen=True)
+class BootstrapStress:
+    simulations: int
+    horizon_days: int
+    terminal_p05: float
+    terminal_p50: float
+    terminal_p95: float
+    max_drawdown_p05: float
+    max_drawdown_p50: float
+    max_drawdown_p95: float
+    loss_probability: float
+    severe_drawdown_probability: float
+
+    def __post_init__(self) -> None:
+        _require_positive("simulations", self.simulations)
+        _require_positive("horizon_days", self.horizon_days)
+        for name in ("loss_probability", "severe_drawdown_probability"):
+            value = getattr(self, name)
+            if value < 0 or value > 1:
+                raise DomainError(f"{name} must be between 0 and 1")
+
+
+@dataclass(frozen=True)
 class RollingMetricPoint:
     as_of: date
     window: str
@@ -418,6 +520,10 @@ class BacktestResult:
     rolling_metrics: tuple[RollingMetricPoint, ...] = ()
     oos_analysis: OosAnalysis | None = None
     regime_results: tuple[RegimeResult, ...] = ()
+    data_reliability: DataReliability | None = None
+    portfolio_risk: PortfolioRisk | None = None
+    quant_review: QuantReview | None = None
+    bootstrap_stress: BootstrapStress | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():

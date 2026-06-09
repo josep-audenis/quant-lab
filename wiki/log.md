@@ -37,3 +37,8 @@ Append-only timeline. Keep entry headings parseable:
 
 - Added executable `strategy_program` contract to experiment creation documentation.
 - Documented supported blocks, validation rules, and interpreter output.
+
+## [2026-06-09] query | Experiment Summary: Priority 3 smoke
+
+- Wrote generated experiment summary page.
+- Updated wiki index.

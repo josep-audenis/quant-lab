@@ -19,9 +19,12 @@ from .domain import (
     Fill,
     Frequency,
     MetricSet,
+    OosAnalysis,
     OrderSide,
     PortfolioSnapshot,
+    RegimeResult,
     RiskWarning,
+    RollingMetricPoint,
     StrategyConfig,
     StrategyProgram,
     WarningSeverity,
@@ -47,18 +50,26 @@ def run_backtest(
 
     portfolio = _simulate(targets, market_data, config)
     metrics = _compute_metrics(portfolio["snapshots"], portfolio["fills"], config, market_data)
-    warnings = (
-        _risk_warnings(metrics, config, portfolio["snapshots"])
-        + _data_gap_warnings(market_data, config)
-    )
     benchmark_curve = _benchmark_curve(portfolio["snapshots"], market_data, config)
+    rolling_metrics = _rolling_metrics(portfolio["snapshots"], config, market_data)
 
     oos_metrics: MetricSet | None = None
+    oos_analysis: OosAnalysis | None = None
     if config.oos_start_date:
+        is_snaps = [s for s in portfolio["snapshots"] if s.as_of < config.oos_start_date]
+        is_fills = [f for f in portfolio["fills"] if f.as_of < config.oos_start_date]
         oos_snaps = [s for s in portfolio["snapshots"] if s.as_of >= config.oos_start_date]
         oos_fills = [f for f in portfolio["fills"] if f.as_of >= config.oos_start_date]
-        if len(oos_snaps) > 1:
+        if len(is_snaps) > 1 and len(oos_snaps) > 1:
+            is_metrics = _compute_metrics(is_snaps, is_fills, config, market_data)
             oos_metrics = _compute_metrics(oos_snaps, oos_fills, config, market_data)
+            oos_analysis = _oos_analysis(config.oos_start_date, is_metrics, oos_metrics)
+
+    regime_results = _regime_results(portfolio["snapshots"], portfolio["fills"], config, market_data)
+    warnings = (
+        _risk_warnings(metrics, config, portfolio["snapshots"], oos_analysis)
+        + _data_gap_warnings(market_data, config)
+    )
 
     return BacktestResult(
         run_id=f"run_{uuid4().hex[:12]}",
@@ -71,6 +82,9 @@ def run_backtest(
         warnings=tuple(warnings),
         benchmark_curve=benchmark_curve,
         oos_metrics=oos_metrics,
+        rolling_metrics=rolling_metrics,
+        oos_analysis=oos_analysis,
+        regime_results=regime_results,
     )
 
 
@@ -174,6 +188,10 @@ def _simulate(
                         price=fill_price,
                         commission=cost,
                         slippage=abs(fill_price - price) * shares_delta,
+                        reason="rebalance_to_target",
+                        target_weight=target_weight,
+                        signal_as_of=current_target.as_of,
+                        execution_timing=config.execution_timing,
                     ))
                     positions[symbol] = current_shares + shares_delta
                     cash -= shares_delta * fill_price + cost
@@ -186,6 +204,10 @@ def _simulate(
                         price=fill_price,
                         commission=cost,
                         slippage=abs(fill_price - price) * abs(shares_delta),
+                        reason="rebalance_to_target",
+                        target_weight=target_weight,
+                        signal_as_of=current_target.as_of,
+                        execution_timing=config.execution_timing,
                     ))
                     positions[symbol] = current_shares + shares_delta
                     cash += abs(shares_delta) * fill_price - cost
@@ -208,6 +230,10 @@ def _simulate(
                             price=fill_price,
                             commission=cost,
                             slippage=abs(fill_price - trade_price) * qty,
+                            reason="liquidate_removed_target",
+                            target_weight=0.0,
+                            signal_as_of=current_target.as_of,
+                            execution_timing=config.execution_timing,
                         ))
                         cash += value - cost
                         positions[symbol] = 0.0
@@ -366,10 +392,89 @@ def _compute_metrics(
     )
 
 
+def _rolling_metrics(
+    snapshots: list[PortfolioSnapshot],
+    config: BacktestConfig,
+    market_data: Mapping[str, tuple[Bar, ...]],
+) -> tuple[RollingMetricPoint, ...]:
+    windows = (("1y", 252), ("3y", 756))
+    points: list[RollingMetricPoint] = []
+    for label, size in windows:
+        if len(snapshots) < size + 1:
+            continue
+        step = max(1, size // 12)
+        indexes = list(range(size, len(snapshots), step))
+        if indexes[-1] != len(snapshots) - 1:
+            indexes.append(len(snapshots) - 1)
+        for idx in indexes:
+            window_snaps = snapshots[idx - size: idx + 1]
+            metrics = _compute_metrics(window_snaps, [], config, market_data)
+            points.append(RollingMetricPoint(
+                as_of=snapshots[idx].as_of,
+                window=label,
+                total_return=metrics.total_return,
+                annualized_return=metrics.annualized_return,
+                volatility=metrics.volatility,
+                sharpe=metrics.sharpe,
+                max_drawdown=metrics.max_drawdown,
+            ))
+    return tuple(points)
+
+
+def _oos_analysis(start_date: date, is_metrics: MetricSet, oos_metrics: MetricSet) -> OosAnalysis:
+    ann_delta = oos_metrics.annualized_return - is_metrics.annualized_return
+    sharpe_delta = None
+    if is_metrics.sharpe is not None and oos_metrics.sharpe is not None:
+        sharpe_delta = oos_metrics.sharpe - is_metrics.sharpe
+    max_dd_delta = oos_metrics.max_drawdown - is_metrics.max_drawdown
+    verdict = "stable"
+    if ann_delta < -0.05 or (sharpe_delta is not None and sharpe_delta < -0.5):
+        verdict = "degraded"
+    elif ann_delta > 0.05 and (sharpe_delta is None or sharpe_delta >= 0):
+        verdict = "improved"
+    return OosAnalysis(
+        start_date=start_date,
+        in_sample=is_metrics,
+        out_of_sample=oos_metrics,
+        annualized_return_delta=ann_delta,
+        sharpe_delta=sharpe_delta,
+        max_drawdown_delta=max_dd_delta,
+        verdict=verdict,
+    )
+
+
+def _regime_results(
+    snapshots: list[PortfolioSnapshot],
+    fills: list[Fill],
+    config: BacktestConfig,
+    market_data: Mapping[str, tuple[Bar, ...]],
+) -> tuple[RegimeResult, ...]:
+    regimes = (
+        ("Dot-com bust", date(2000, 3, 24), date(2002, 10, 9)),
+        ("Global financial crisis", date(2007, 10, 9), date(2009, 3, 9)),
+        ("COVID crash", date(2020, 2, 19), date(2020, 3, 23)),
+        ("Rate shock", date(2022, 1, 3), date(2022, 10, 12)),
+    )
+    results: list[RegimeResult] = []
+    for name, start, end in regimes:
+        regime_snaps = [s for s in snapshots if start <= s.as_of <= end]
+        if len(regime_snaps) < 2:
+            continue
+        regime_fills = [f for f in fills if start <= f.as_of <= end]
+        results.append(RegimeResult(
+            name=name,
+            start_date=regime_snaps[0].as_of,
+            end_date=regime_snaps[-1].as_of,
+            metrics=_compute_metrics(regime_snaps, regime_fills, config, market_data),
+        ))
+    return tuple(results)
+
+
 def _risk_warnings(
     metrics: MetricSet,
     config: BacktestConfig,
     snapshots: list[PortfolioSnapshot],
+    oos_analysis: OosAnalysis | None = None,
 ) -> list[RiskWarning]:
     warnings: list[RiskWarning] = []
     n_years = (snapshots[-1].as_of - snapshots[0].as_of).days / 365.25 if snapshots else 0
@@ -400,6 +505,16 @@ def _risk_warnings(
             severity=WarningSeverity.CAUTION,
             message="No out-of-sample split configured.",
             evidence={},
+        ))
+    elif oos_analysis and oos_analysis.verdict == "degraded":
+        warnings.append(RiskWarning(
+            code="oos_degradation",
+            severity=WarningSeverity.CAUTION,
+            message="Out-of-sample performance degraded versus in-sample.",
+            evidence={
+                "annualized_return_delta": round(oos_analysis.annualized_return_delta, 4),
+                "sharpe_delta": None if oos_analysis.sharpe_delta is None else round(oos_analysis.sharpe_delta, 4),
+            },
         ))
     total_cost_bps = config.cost_model.commission_bps + config.cost_model.slippage_bps
     if total_cost_bps >= 10:

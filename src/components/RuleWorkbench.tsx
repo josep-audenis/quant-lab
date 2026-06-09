@@ -1,5 +1,5 @@
 import { ArrowLeft, Download, Loader, Pencil, Play, Save, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ExperimentSummary, SweepResult } from "../api/experiments";
 import { sweepExperiment } from "../api/experiments";
 import { RuleBuilder, type Block } from "./RuleBuilder";
@@ -393,6 +393,9 @@ function SweepPanel({
   const params = SWEEP_PARAMS[kind] ?? [];
   const [paramKey, setParamKey] = useState(params[0]?.key ?? "");
   const [valuesStr, setValuesStr] = useState(params[0]?.defaultValues ?? "");
+  const [useGrid, setUseGrid] = useState(params.length > 1);
+  const [paramBKey, setParamBKey] = useState(params[1]?.key ?? "");
+  const [valuesBStr, setValuesBStr] = useState(params[1]?.defaultValues ?? "");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -402,10 +405,20 @@ function SweepPanel({
       .map((v) => Number(v.trim()))
       .filter((v) => !Number.isNaN(v) && v > 0);
     if (!values.length || !paramKey) return;
+    const valuesB = valuesBStr
+      .split(",")
+      .map((v) => Number(v.trim()))
+      .filter((v) => !Number.isNaN(v) && v > 0);
     setRunning(true);
     setError(null);
     try {
-      const res = await sweepExperiment(experiment.id, paramKey, values);
+      const res = await sweepExperiment(
+        experiment.id,
+        paramKey,
+        values,
+        useGrid && paramBKey ? paramBKey : undefined,
+        useGrid && paramBKey ? valuesB : undefined,
+      );
       onResult(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sweep failed");
@@ -437,6 +450,11 @@ function SweepPanel({
               setParamKey(e.target.value);
               const p = params.find((x) => x.key === e.target.value);
               if (p) setValuesStr(p.defaultValues);
+              const nextSecond = params.find((x) => x.key !== e.target.value);
+              if (nextSecond) {
+                setParamBKey(nextSecond.key);
+                setValuesBStr(nextSecond.defaultValues);
+              }
             }}
           >
             {params.map((p) => (
@@ -448,6 +466,37 @@ function SweepPanel({
           <span>Values (comma-separated)</span>
           <input value={valuesStr} onChange={(e) => setValuesStr(e.target.value)} />
         </label>
+        {params.length > 1 && (
+          <>
+            <label className="field checkbox-field">
+              <span>Heatmap grid</span>
+              <input type="checkbox" checked={useGrid} onChange={(e) => setUseGrid(e.target.checked)} />
+            </label>
+            {useGrid && (
+              <>
+                <label className="field">
+                  <span>Second parameter</span>
+                  <select
+                    value={paramBKey}
+                    onChange={(e) => {
+                      setParamBKey(e.target.value);
+                      const p = params.find((x) => x.key === e.target.value);
+                      if (p) setValuesBStr(p.defaultValues);
+                    }}
+                  >
+                    {params.filter((p) => p.key !== paramKey).map((p) => (
+                      <option key={p.key} value={p.key}>{p.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Second values</span>
+                  <input value={valuesBStr} onChange={(e) => setValuesBStr(e.target.value)} />
+                </label>
+              </>
+            )}
+          </>
+        )}
         <button className="btn primary" disabled={running} onClick={() => void handleSweep()}>
           {running ? <Loader size={14} className="spin" /> : null}
           {running ? "Running sweep..." : "Run sweep"}
@@ -458,8 +507,13 @@ function SweepPanel({
       {result && (
         <div className="sweep-results">
           <p className="sect-label metrics-label">
-            Sweep: {result.param} - {result.sweep.length} runs
+            Sweep: {result.param}{result.param_b ? ` x ${result.param_b}` : ""} - {result.grid?.length ?? result.sweep.length} runs
           </p>
+          {result.grid && result.param_b ? (
+            <SweepHeatmap result={result} />
+          ) : (
+            <SingleParamHeatmap result={result} />
+          )}
           <table className="sweep-table">
             <thead>
               <tr>
@@ -500,6 +554,70 @@ function SweepPanel({
       )}
     </div>
   );
+}
+
+function SingleParamHeatmap({ result }: { result: SweepResult }) {
+  const valid = result.sweep.filter((point) => point.metrics);
+  if (!valid.length) return null;
+  const min = Math.min(...valid.map((point) => point.metrics!.total_return));
+  const max = Math.max(...valid.map((point) => point.metrics!.total_return));
+  return (
+    <div className="heatmap-row">
+      {result.sweep.map((point) => (
+        <div
+          key={point.param_value}
+          className="heatmap-cell"
+          style={{ background: heatColor(point.metrics?.total_return ?? null, min, max) }}
+          title={`${result.param} ${point.param_value}`}
+        >
+          <span>{point.param_value}</span>
+          <strong>{point.metrics ? `${(point.metrics.total_return * 100).toFixed(1)}%` : "fail"}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SweepHeatmap({ result }: { result: SweepResult }) {
+  const grid = result.grid ?? [];
+  const xs = [...new Set(grid.map((point) => point.param_value))];
+  const ys = [...new Set(grid.map((point) => point.param_b_value))];
+  const valid = grid.filter((point) => point.metrics);
+  if (!valid.length) return null;
+  const min = Math.min(...valid.map((point) => point.metrics!.total_return));
+  const max = Math.max(...valid.map((point) => point.metrics!.total_return));
+  const lookup = new Map(grid.map((point) => [`${point.param_value}:${point.param_b_value}`, point]));
+  return (
+    <div className="heatmap-grid" style={{ gridTemplateColumns: `90px repeat(${xs.length}, minmax(70px, 1fr))` }}>
+      <div className="heatmap-axis">{result.param_b}</div>
+      {xs.map((x) => <div className="heatmap-axis" key={x}>{result.param} {x}</div>)}
+      {ys.map((y) => (
+        <Fragment key={y}>
+          <div className="heatmap-axis" key={`y-${y}`}>{y}</div>
+          {xs.map((x) => {
+            const point = lookup.get(`${x}:${y}`);
+            return (
+              <div
+                className="heatmap-cell"
+                key={`${x}-${y}`}
+                style={{ background: heatColor(point?.metrics?.total_return ?? null, min, max) }}
+              >
+                <strong>{point?.metrics ? `${(point.metrics.total_return * 100).toFixed(1)}%` : "fail"}</strong>
+              </div>
+            );
+          })}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function heatColor(value: number | null, min: number, max: number) {
+  if (value == null) return "rgba(255, 94, 94, 0.15)";
+  const t = max === min ? 0.5 : (value - min) / (max - min);
+  const red = Math.round(180 - t * 110);
+  const green = Math.round(80 + t * 150);
+  return `rgba(${red}, ${green}, 120, 0.35)`;
 }
 
 function describeReadableBlock(block: Record<string, unknown>) {

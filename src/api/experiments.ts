@@ -41,6 +41,10 @@ export type Fill = {
   price: number;
   commission: number;
   slippage: number;
+  reason: string;
+  target_weight: number | null;
+  signal_as_of: string | null;
+  execution_timing: string | null;
 };
 
 export type SweepPoint = {
@@ -49,9 +53,47 @@ export type SweepPoint = {
   error?: string;
 };
 
+export type SweepGridPoint = {
+  param_value: number;
+  param_b_value: number;
+  metrics: MetricSet | null;
+  error?: string;
+};
+
 export type SweepResult = {
   param: string;
+  param_b?: string;
+  values?: number[];
+  values_b?: number[];
   sweep: SweepPoint[];
+  grid?: SweepGridPoint[];
+};
+
+export type RollingMetricPoint = {
+  as_of: string;
+  window: string;
+  total_return: number;
+  annualized_return: number;
+  volatility: number;
+  sharpe: number | null;
+  max_drawdown: number;
+};
+
+export type OosAnalysis = {
+  start_date: string;
+  in_sample: MetricSet;
+  out_of_sample: MetricSet;
+  annualized_return_delta: number;
+  sharpe_delta: number | null;
+  max_drawdown_delta: number;
+  verdict: string;
+};
+
+export type RegimeResult = {
+  name: string;
+  start_date: string;
+  end_date: string;
+  metrics: MetricSet;
 };
 
 export type BacktestConfigSummary = {
@@ -100,6 +142,9 @@ export type BacktestResult = {
   warnings: RiskWarning[];
   benchmark_curve: BenchmarkPoint[];
   oos_metrics: MetricSet | null;
+  rolling_metrics: RollingMetricPoint[];
+  oos_analysis: OosAnalysis | null;
+  regime_results: RegimeResult[];
 };
 
 export type ExperimentSummary = {
@@ -312,11 +357,13 @@ export async function sweepExperiment(
   id: string,
   param: string,
   values: number[],
+  paramB?: string,
+  valuesB?: number[],
 ): Promise<SweepResult> {
   const response = await fetch(`${API_BASE_URL}/experiments/${encodeURIComponent(id)}/sweep`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ param, values }),
+    body: JSON.stringify({ param, values, param_b: paramB, values_b: valuesB }),
   });
   if (!response.ok) {
     throw new Error(await errorMessage(response, "Sweep failed"));

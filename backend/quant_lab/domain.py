@@ -247,6 +247,10 @@ class Fill:
     price: float
     commission: float = 0.0
     slippage: float = 0.0
+    reason: str = "rebalance_to_target"
+    target_weight: float | None = None
+    signal_as_of: date | None = None
+    execution_timing: ExecutionTiming | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol.strip():
@@ -255,6 +259,10 @@ class Fill:
         _require_positive("price", self.price)
         _require_non_negative("commission", self.commission)
         _require_non_negative("slippage", self.slippage)
+        if not self.reason.strip():
+            raise DomainError("Fill reason cannot be empty")
+        if self.target_weight is not None:
+            _require_non_negative("target_weight", self.target_weight)
 
 
 @dataclass(frozen=True)
@@ -348,6 +356,53 @@ class RunProvenance:
 
 
 @dataclass(frozen=True)
+class RollingMetricPoint:
+    as_of: date
+    window: str
+    total_return: float
+    annualized_return: float
+    volatility: float
+    sharpe: float | None
+    max_drawdown: float
+
+    def __post_init__(self) -> None:
+        if not self.window.strip():
+            raise DomainError("Rolling metric window cannot be empty")
+        _require_non_negative("volatility", self.volatility)
+        if self.max_drawdown > 0:
+            raise DomainError("Rolling metric max_drawdown cannot be positive")
+
+
+@dataclass(frozen=True)
+class OosAnalysis:
+    start_date: date
+    in_sample: MetricSet
+    out_of_sample: MetricSet
+    annualized_return_delta: float
+    sharpe_delta: float | None
+    max_drawdown_delta: float
+    verdict: str
+
+    def __post_init__(self) -> None:
+        if not self.verdict.strip():
+            raise DomainError("OOS verdict cannot be empty")
+
+
+@dataclass(frozen=True)
+class RegimeResult:
+    name: str
+    start_date: date
+    end_date: date
+    metrics: MetricSet
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise DomainError("Regime name cannot be empty")
+        if self.start_date > self.end_date:
+            raise DomainError("Regime start_date cannot be after end_date")
+
+
+@dataclass(frozen=True)
 class BacktestResult:
     run_id: str
     generated_at: datetime
@@ -360,6 +415,9 @@ class BacktestResult:
     benchmark_curve: tuple[BenchmarkPoint, ...] = ()
     oos_metrics: MetricSet | None = None
     provenance: RunProvenance = field(default_factory=RunProvenance)
+    rolling_metrics: tuple[RollingMetricPoint, ...] = ()
+    oos_analysis: OosAnalysis | None = None
+    regime_results: tuple[RegimeResult, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():

@@ -1,6 +1,14 @@
 import { AlertTriangle, Info, TrendingDown, TrendingUp, Zap } from "lucide-react";
-import type { BacktestResult, BenchmarkPoint, Fill, MetricSet, PortfolioSnapshot, RiskWarning } from "../api/experiments";
-import { useState } from "react";
+import type {
+  BacktestResult,
+  BenchmarkPoint,
+  Fill,
+  MetricSet,
+  PortfolioSnapshot,
+  RegimeResult,
+  RiskWarning,
+  RollingMetricPoint,
+} from "../api/experiments";
 
 type ResultsPanelProps = {
   result: BacktestResult;
@@ -16,7 +24,11 @@ export function ResultsPanel({ result, initialCapital, benchmark }: ResultsPanel
       <MetricsGrid metrics={metrics} benchmark={benchmark} />
       <AssumptionsPanel result={result} />
       {result.provenance.data.length > 0 && <ProvenancePanel result={result} />}
-      {result.oos_metrics && <OosPanel isMetrics={metrics} oosMetrics={result.oos_metrics} benchmark={benchmark} />}
+      {result.oos_metrics && (
+        <OosPanel result={result} isMetrics={metrics} oosMetrics={result.oos_metrics} benchmark={benchmark} />
+      )}
+      {result.rolling_metrics.length > 0 && <RollingMetricsPanel points={result.rolling_metrics} />}
+      {result.regime_results.length > 0 && <RegimePanel regimes={result.regime_results} />}
       <EquityChart curve={equity_curve} benchmarkCurve={result.benchmark_curve} initialCapital={initialCapital} />
       <DrawdownChart curve={equity_curve} />
       {result.fills.length > 0 && <AttributionChart fills={result.fills} />}
@@ -352,62 +364,67 @@ function EquityChart({
 // --- OOS panel ---------------------------------------------------------------
 
 function OosPanel({
+  result,
   isMetrics,
   oosMetrics,
   benchmark,
 }: {
+  result: BacktestResult;
   isMetrics: MetricSet;
   oosMetrics: MetricSet;
   benchmark: string;
 }) {
-  const rows: Array<{ label: string; is: string; oos: string; higherBetter: boolean | null }> = [
+  const analysis = result.oos_analysis;
+  const rows: Array<{ label: string; is: string; oos: string; delta: string }> = [
     {
       label: "Total return",
       is: pct(isMetrics.total_return),
       oos: pct(oosMetrics.total_return),
-      higherBetter: true,
+      delta: pct(oosMetrics.total_return - isMetrics.total_return),
     },
     {
       label: "Ann. return",
       is: pct(isMetrics.annualized_return),
       oos: pct(oosMetrics.annualized_return),
-      higherBetter: true,
+      delta: analysis ? pct(analysis.annualized_return_delta) : pct(oosMetrics.annualized_return - isMetrics.annualized_return),
     },
     {
       label: "Volatility",
       is: `${(isMetrics.volatility * 100).toFixed(2)}%`,
       oos: `${(oosMetrics.volatility * 100).toFixed(2)}%`,
-      higherBetter: null,
+      delta: pct(oosMetrics.volatility - isMetrics.volatility),
     },
     {
       label: "Sharpe",
       is: isMetrics.sharpe != null ? isMetrics.sharpe.toFixed(2) : "-",
       oos: oosMetrics.sharpe != null ? oosMetrics.sharpe.toFixed(2) : "-",
-      higherBetter: true,
+      delta: analysis?.sharpe_delta != null ? signedNumber(analysis.sharpe_delta) : "-",
     },
     {
       label: "Max drawdown",
       is: pct(isMetrics.max_drawdown),
       oos: pct(oosMetrics.max_drawdown),
-      higherBetter: false,
+      delta: analysis ? pct(analysis.max_drawdown_delta) : pct(oosMetrics.max_drawdown - isMetrics.max_drawdown),
     },
     {
       label: `${benchmark} total`,
       is: isMetrics.benchmark_total_return != null ? pct(isMetrics.benchmark_total_return) : "-",
       oos: oosMetrics.benchmark_total_return != null ? pct(oosMetrics.benchmark_total_return) : "-",
-      higherBetter: null,
+      delta:
+        isMetrics.benchmark_total_return != null && oosMetrics.benchmark_total_return != null
+          ? pct(oosMetrics.benchmark_total_return - isMetrics.benchmark_total_return)
+          : "-",
     },
   ];
 
-  const oosRetColor =
-    oosMetrics.total_return >= isMetrics.total_return * 0.8 ? "pos" : "neg";
+  const oosRetColor = analysis?.verdict === "degraded" ? "neg" : "pos";
 
   return (
     <div className="oos-section">
       <p className="sect-label metrics-label">
         In-sample vs out-of-sample
         <span className={`oos-badge ${oosRetColor}`}>
-          OOS {pct(oosMetrics.total_return)}
+          {analysis ? analysis.verdict : `OOS ${pct(oosMetrics.total_return)}`}
         </span>
       </p>
       <div className="oos-table-wrap">
@@ -426,7 +443,78 @@ function OosPanel({
                 <td>{row.label}</td>
                 <td>{row.is}</td>
                 <td>{row.oos}</td>
-                <td>-</td>
+                <td>{row.delta}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RollingMetricsPanel({ points }: { points: RollingMetricPoint[] }) {
+  const latest = [...points]
+    .sort((a, b) => b.as_of.localeCompare(a.as_of))
+    .filter((point, index, list) => list.findIndex((item) => item.window === point.window) === index);
+  return (
+    <div className="oos-section">
+      <p className="sect-label metrics-label">Rolling stability</p>
+      <div className="oos-table-wrap">
+        <table className="oos-table">
+          <thead>
+            <tr>
+              <th>Window</th>
+              <th>As of</th>
+              <th>Total</th>
+              <th>Ann.</th>
+              <th>Sharpe</th>
+              <th>Max DD</th>
+            </tr>
+          </thead>
+          <tbody>
+            {latest.map((point) => (
+              <tr key={point.window}>
+                <td>{point.window}</td>
+                <td>{point.as_of}</td>
+                <td className={point.total_return >= 0 ? "pos" : "neg"}>{pct(point.total_return)}</td>
+                <td>{pct(point.annualized_return)}</td>
+                <td>{point.sharpe != null ? point.sharpe.toFixed(2) : "-"}</td>
+                <td className="neg">{pct(point.max_drawdown)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RegimePanel({ regimes }: { regimes: RegimeResult[] }) {
+  return (
+    <div className="oos-section">
+      <p className="sect-label metrics-label">Regime windows</p>
+      <div className="oos-table-wrap">
+        <table className="oos-table">
+          <thead>
+            <tr>
+              <th>Regime</th>
+              <th>Window</th>
+              <th>Total</th>
+              <th>Sharpe</th>
+              <th>Max DD</th>
+              <th>Vs benchmark</th>
+            </tr>
+          </thead>
+          <tbody>
+            {regimes.map((regime) => (
+              <tr key={regime.name}>
+                <td>{regime.name}</td>
+                <td>{regime.start_date} to {regime.end_date}</td>
+                <td className={regime.metrics.total_return >= 0 ? "pos" : "neg"}>{pct(regime.metrics.total_return)}</td>
+                <td>{regime.metrics.sharpe != null ? regime.metrics.sharpe.toFixed(2) : "-"}</td>
+                <td className="neg">{pct(regime.metrics.max_drawdown)}</td>
+                <td>{regime.metrics.benchmark_total_return != null ? pct(regime.metrics.benchmark_total_return) : "-"}</td>
               </tr>
             ))}
           </tbody>
@@ -597,6 +685,8 @@ function FillsTable({ fills }: { fills: Fill[] }) {
               <th>Price</th>
               <th>Value</th>
               <th>Commission</th>
+              <th>Reason</th>
+              <th>Target</th>
             </tr>
           </thead>
           <tbody>
@@ -609,6 +699,8 @@ function FillsTable({ fills }: { fills: Fill[] }) {
                 <td>${f.price.toFixed(2)}</td>
                 <td>${(f.quantity * f.price).toFixed(0)}</td>
                 <td>{f.commission > 0 ? `$${f.commission.toFixed(2)}` : "-"}</td>
+                <td>{fillReason(f.reason, f.signal_as_of, f.execution_timing)}</td>
+                <td>{f.target_weight != null ? `${(f.target_weight * 100).toFixed(1)}%` : "-"}</td>
               </tr>
             ))}
           </tbody>
@@ -650,6 +742,16 @@ function WarningsList({ warnings }: { warnings: RiskWarning[] }) {
 function pct(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${(value * 100).toFixed(2)}%`;
+}
+
+function signedNumber(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function fillReason(reason: string, signalAsOf: string | null, timing: string | null) {
+  const label = reason === "liquidate_removed_target" ? "Liquidate stale target" : "Rebalance";
+  if (!signalAsOf) return label;
+  return `${label} (${executionLabel(timing ?? "same_close")}, signal ${signalAsOf})`;
 }
 
 function executionLabel(value: string) {

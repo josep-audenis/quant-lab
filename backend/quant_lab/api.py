@@ -251,8 +251,12 @@ def create_app(
 
         param = payload.get("param")
         values = payload.get("values", [])
+        param_b = payload.get("param_b")
+        values_b = payload.get("values_b", [])
         if not param or not values:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="param and values are required")
+        if param_b and not values_b:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="values_b is required when param_b is set")
 
         experiment = _ensure_strategy_program(experiment)
         all_symbols = list(experiment.strategy.universe)
@@ -271,20 +275,52 @@ def create_app(
         market_data = {sym: series.bars for sym, series in market_data_series.items()}
 
         sweep_results: list[dict[str, Any]] = []
+        grid_results: list[dict[str, Any]] = []
+        secondary_values = values_b if param_b else [None]
         for val in values:
-            try:
-                new_params = dict(experiment.strategy.parameters)
-                new_params[param] = val
-                new_program = _strategy_program(experiment.strategy.kind, experiment.strategy.universe, new_params)
-                new_experiment = replace(
-                    experiment,
-                    strategy=replace(experiment.strategy, parameters=new_params),
-                    strategy_program=new_program,
-                )
-                result = run_backtest(new_experiment, market_data)
-                sweep_results.append({"param_value": val, "metrics": to_primitive(result.metrics)})
-            except (DomainError, Exception):
-                sweep_results.append({"param_value": val, "metrics": None, "error": f"Failed for {param}={val}"})
+            for val_b in secondary_values:
+                try:
+                    new_params = dict(experiment.strategy.parameters)
+                    new_params[param] = val
+                    if param_b:
+                        new_params[param_b] = val_b
+                    new_program = _strategy_program(experiment.strategy.kind, experiment.strategy.universe, new_params)
+                    new_experiment = replace(
+                        experiment,
+                        status=ExperimentStatus.DRAFT,
+                        strategy=replace(experiment.strategy, parameters=new_params),
+                        strategy_program=new_program,
+                        result=None,
+                    )
+                    result = run_backtest(new_experiment, market_data)
+                    if param_b:
+                        grid_results.append({
+                            "param_value": val,
+                            "param_b_value": val_b,
+                            "metrics": to_primitive(result.metrics),
+                        })
+                    elif val_b is None:
+                        sweep_results.append({"param_value": val, "metrics": to_primitive(result.metrics)})
+                except (DomainError, Exception):
+                    if param_b:
+                        grid_results.append({
+                            "param_value": val,
+                            "param_b_value": val_b,
+                            "metrics": None,
+                            "error": f"Failed for {param}={val}, {param_b}={val_b}",
+                        })
+                    else:
+                        sweep_results.append({"param_value": val, "metrics": None, "error": f"Failed for {param}={val}"})
+
+        if param_b:
+            return {
+                "param": param,
+                "param_b": param_b,
+                "values": values,
+                "values_b": values_b,
+                "sweep": sweep_results,
+                "grid": grid_results,
+            }
 
         return {"param": param, "sweep": sweep_results}
 

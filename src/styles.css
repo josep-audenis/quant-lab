@@ -2781,6 +2781,47 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
 }
 
+.heatmap-row,
+.heatmap-grid {
+  margin: 12px 0 16px;
+}
+
+.heatmap-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  gap: 6px;
+}
+
+.heatmap-grid {
+  display: grid;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.heatmap-cell,
+.heatmap-axis {
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.heatmap-cell strong {
+  font-size: 14px;
+}
+
+.heatmap-axis {
+  min-height: 32px;
+  color: var(--muted);
+  background: var(--panel-2);
+  font-weight: 600;
+}
+
 .sweep-table th {
   padding: 8px 14px;
   text-align: right;

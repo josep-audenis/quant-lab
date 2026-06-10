@@ -1,8 +1,8 @@
 ---
 type: experiment
 status: active
-created: 2026-06-09
-updated: 2026-06-09
+created: 2026-06-10
+updated: 2026-06-10
 sources: []
 tags:
   - quant-lab
@@ -33,6 +33,8 @@ Smoke test priority 3 diagnostics.
 - OOS verdict: improved
 - Data score: 99.8
 - Average exposure: 100.00%
+- Credibility: unknown
+- Decision: unknown
 
 ## Regimes
 

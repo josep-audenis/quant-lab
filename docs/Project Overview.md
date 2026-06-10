@@ -29,7 +29,7 @@ Users create experiments, run backtests, inspect risk, compare variants, and exp
 2. Configure universe, dates, capital, benchmark, costs, cash policy, rebalance cadence.
 3. Run async backtest.
 4. Inspect metrics, equity curve, drawdowns, warnings, fills, data reliability, risk review.
-5. Save variants or sweep parameters.
+5. Save variants, sweep parameters, or run robustness checks.
 6. Export JSON, tear sheet, wiki summary, or open question.
 
 ## Supported Strategy Kinds
@@ -44,3 +44,9 @@ Users create experiments, run backtests, inspect risk, compare variants, and exp
 - Experiments persist as JSON files under `data/experiments/`.
 - Market data caches under `data/market_cache/`.
 - Wiki outputs write into `wiki/experiments/` and `wiki/questions/Open Questions.md`.
+
+## Portfolio Readiness
+
+- Robustness Lab is implemented for cost, start-date, and parameter sensitivity.
+- README includes screenshot, feature matrix, architecture summary, known limits, and verification commands.
+- Current best next phase is refinement and demo polish, not broad feature expansion.

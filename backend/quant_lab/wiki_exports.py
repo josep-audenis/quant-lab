@@ -141,6 +141,13 @@ def tear_sheet_markdown(experiment: Experiment) -> str:
         f"- {regime.name}: return {regime.metrics.total_return:.2%}, max drawdown {regime.metrics.max_drawdown:.2%}"
         for regime in result.regime_results
     ) or "- No named regime overlap"
+    flags = review.flags if review else ()
+    failure_modes = "\n".join(f"- {flag.label}: {flag.detail}" for flag in flags) or "- No deterministic review flags."
+    next_tests = "\n".join([
+        "- Run robustness lab cost sensitivity.",
+        "- Run start-date sensitivity to test timing dependence.",
+        "- Sweep key strategy parameters and compare drawdown/turnover stability.",
+    ])
     stress_text = "- Not enough return history for bootstrap stress."
     if stress:
         stress_text = "\n".join([
@@ -189,6 +196,14 @@ def tear_sheet_markdown(experiment: Experiment) -> str:
 ## Regime Windows
 
 {regimes}
+
+## Failure Modes
+
+{failure_modes}
+
+## Next Experiments
+
+{next_tests}
 
 ## Risk Flags
 

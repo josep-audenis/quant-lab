@@ -14,13 +14,14 @@ from .api_config import DEFAULT_EXPERIMENT_ROOT, DEFAULT_MARKET_CACHE_ROOT, allo
 from .experiment_payloads import (
     build_draft_experiment,
     ensure_strategy_program,
-    experiment_blueprints,
+    experiment_blueprints as build_experiment_blueprints,
     optional_str,
     parse_experiment_payload,
     required_str,
     strategy_program,
 )
 from .result_enrichment import enrich_result, experiment_changes
+from .robustness import robustness_report
 from .wiki_exports import append_open_question, tear_sheet_markdown, write_wiki_experiment_summary
 from .domain import (
     BacktestConfig,
@@ -80,7 +81,7 @@ def create_app(
 
     @app.get("/experiment-blueprints")
     def experiment_blueprints() -> dict[str, Any]:
-        return {"blueprints": experiment_blueprints()}
+        return {"blueprints": build_experiment_blueprints()}
 
     @app.get("/experiments")
     def list_experiments() -> dict[str, Any]:
@@ -417,6 +418,35 @@ def create_app(
             }
 
         return {"param": param, "sweep": sweep_results}
+
+    @app.get("/experiments/{experiment_id}/robustness", status_code=status.HTTP_200_OK)
+    def experiment_robustness(experiment_id: str) -> dict[str, Any]:
+        try:
+            experiment = ensure_strategy_program(app.state.store.get(experiment_id))
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found") from exc
+
+        program = experiment.strategy_program
+        assert program is not None
+        all_symbols = list(program.universe)
+        if experiment.backtest.benchmark not in all_symbols:
+            all_symbols.append(experiment.backtest.benchmark)
+
+        try:
+            market_data_series = app.state.fetcher.fetch_many(
+                tuple(all_symbols),
+                experiment.backtest.start_date,
+                experiment.backtest.end_date,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Market data fetch failed: {exc}") from exc
+
+        market_data = {sym: series.bars for sym, series in market_data_series.items()}
+        try:
+            report = robustness_report(experiment, market_data)
+        except DomainError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        return {"robustness": report}
 
     return app
 

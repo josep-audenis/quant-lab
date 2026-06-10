@@ -26,6 +26,7 @@ Primary code:
 - backend/quant_lab/programs.py
 - backend/quant_lab/experiment_payloads.py
 - backend/quant_lab/result_enrichment.py
+- backend/quant_lab/robustness.py
 - backend/quant_lab/wiki_exports.py
 - src/App.tsx
 - src/screens/LabsScreen.tsx
@@ -36,7 +37,8 @@ Commands:
 - python -m uvicorn backend.main:app --host 127.0.0.1 --port 8011
 - pnpm dev -- --host 127.0.0.1 --port 5173
 - pytest
-- pnpm build
+- pnpm.cmd build
+- pnpm.cmd smoke:frontend
 
 Rules:
 - Read AGENTS.md before repo work.

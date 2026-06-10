@@ -2,7 +2,7 @@
 type: synthesis
 status: active
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-06-09
 sources:
   - "[[Product Vision Brief]]"
 tags:
@@ -41,10 +41,10 @@ Main workflow:
 
 ## Current Direction
 
-- MVP 1 is a backtest cockpit with Buy and Hold, Moving Average Crossover, and Momentum Rotation.
-- First demo should test whether the 200-day moving average protects SPY investors.
-- Product should feel like Bloomberg Terminal meets clean Vercel dashboard meets strategy game cockpit.
-- Early depth should come from risk honesty, not many indicators.
+- Current app implements the backtest cockpit, experiment persistence, comparison, sweeps, diagnostics, research exports, and [[Robustness Lab]].
+- Supported strategy templates are Buy and Hold, Moving Average Filter, and Momentum Rotation.
+- Portfolio-project strength now comes from risk honesty: assumptions, drawdowns, OOS, regimes, data provenance, deterministic review, bootstrap stress, and robustness checks.
+- Next direction should be refinement: demo data, README narrative, UI polish, screenshots, and smoke-test reliability.
 
 ## Focus Areas
 
@@ -57,11 +57,11 @@ Main workflow:
 
 ## Current Gaps
 
-- No implementation stack initialized.
-- No market data provider selected.
-- No deterministic backtesting engine implemented.
-- No UI prototype implemented.
-- No external research sources ingested.
+- No auth, multi-user storage, or hosted deployment model.
+- Execution model is simplified: no taxes, borrow fees, liquidity constraints, partial fills, or broker routing.
+- Robustness checks are deterministic heuristics; walk-forward optimization remains open.
+- Custom rule builder exists at executable-block level, but natural-language strategy creation is not productized.
+- Research memo export is Markdown, not polished PDF/share page.
 
 ## Links
 
@@ -69,4 +69,5 @@ Main workflow:
 - [[MVP Roadmap]]
 - [[Product Architecture]]
 - [[Research Cockpit UX]]
+- [[Robustness Lab]]
 - [[Open Questions]]

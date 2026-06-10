@@ -54,6 +54,7 @@ Async stages:
 
 - `POST /experiments/{experiment_id}/variant` -> creates parameter variant. Body `{ "name": "...", "parameters": { ... } }`.
 - `POST /experiments/{experiment_id}/sweep` -> runs parameter sweep against cached/fetched market data.
+- `GET /experiments/{experiment_id}/robustness` -> cost, start-date, parameter sensitivity, and fragility verdict.
 - `GET /experiments/{experiment_id}/changes/{base_experiment_id}` -> metric/parameter/assumption deltas. Both experiments need results.
 
 ## Common Errors

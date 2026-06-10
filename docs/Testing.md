@@ -21,7 +21,13 @@ pytest
 Frontend build/type check:
 
 ```bash
-pnpm build
+pnpm.cmd build
+```
+
+Frontend/local smoke:
+
+```bash
+pnpm.cmd smoke:frontend
 ```
 
 ## Current Test Files
@@ -31,6 +37,7 @@ pnpm build
 - `tests/test_market_data.py` - market data cache/fetch behavior.
 - `tests/test_programs.py` - strategy program validation/interpreter.
 - `tests/test_run_endpoint.py` - API run endpoint behavior.
+- `tests/smoke_frontend.mjs` - local frontend/backend smoke check; expects both servers running.
 
 ## Test Strategy
 
@@ -38,6 +45,7 @@ pnpm build
 - Prefer deterministic market data fixtures over live yfinance calls.
 - Test domain errors at source, then API translation at route level.
 - Add frontend type coverage through `pnpm build` until dedicated UI tests exist.
+- Use `pnpm.cmd smoke:frontend` after starting backend/frontend to catch local integration regressions.
 
 ## When To Broaden Tests
 

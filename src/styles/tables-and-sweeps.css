@@ -418,6 +418,77 @@
   padding: 8px 0;
 }
 
+/* --- Robustness lab ------------------------------------------------------- */
+
+.robustness-panel {
+  padding: 24px;
+  display: grid;
+  gap: 18px;
+}
+
+.robustness-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.robustness-head h2 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.robustness-head p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 760px;
+}
+
+.robustness-verdict {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.robustness-pill {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px;
+}
+
+.robustness-pill span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.robustness-pill strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.robustness-pill.bad strong {
+  color: #ff8b8b;
+}
+
+.robustness-section {
+  overflow-x: auto;
+}
+
+.robustness-section .heatmap-cell small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /* --- Print / PDF export --------------------------------------------------- */
 
 @media print {

@@ -31,6 +31,7 @@ Backend is FastAPI app under `backend/quant_lab/`.
 - `engine_metrics.py` - metrics, benchmark, rolling, OOS, regimes.
 - `engine_risk.py` - risk warnings and portfolio risk.
 - `result_enrichment.py` - provenance, reliability, review, bootstrap stress.
+- `robustness.py` - cost, start-date, and parameter sensitivity plus fragility verdict.
 - `wiki_exports.py` - tear sheets, experiment wiki summary, open questions.
 
 ## Dependency Injection

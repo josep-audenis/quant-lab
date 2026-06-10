@@ -3,9 +3,11 @@ import type { ReactNode } from "react";
 
 type AppShellProps = {
   children: ReactNode;
+  activeTab: "experiments" | "data" | "docs";
+  onTabChange: (tab: "experiments" | "data" | "docs") => void;
 };
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, activeTab, onTabChange }: AppShellProps) {
   return (
     <div id="app">
       <header className="topbar">
@@ -18,9 +20,15 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         <nav className="topnav" aria-label="Primary">
-          <a className="active">Experiments</a>
-          <a>Data</a>
-          <a>Docs</a>
+          <button className={activeTab === "experiments" ? "active" : ""} onClick={() => onTabChange("experiments")}>
+            Experiments
+          </button>
+          <button className={activeTab === "data" ? "active" : ""} onClick={() => onTabChange("data")}>
+            Data
+          </button>
+          <button className={activeTab === "docs" ? "active" : ""} onClick={() => onTabChange("docs")}>
+            Docs
+          </button>
         </nav>
 
         <span className="spacer" />

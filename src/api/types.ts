@@ -67,6 +67,26 @@ export type SweepResult = {
   grid?: SweepGridPoint[];
 };
 
+export type RobustnessPoint = {
+  label: string;
+  value: number;
+  param?: string;
+  metrics: MetricSet | null;
+  error?: string;
+};
+
+export type RobustnessReport = {
+  base_metrics: MetricSet;
+  cost_sensitivity: RobustnessPoint[];
+  start_date_sensitivity: RobustnessPoint[];
+  parameter_sensitivity: RobustnessPoint[];
+  verdict: {
+    decision: "robust" | "fragile" | "overfit-risk";
+    flags: string[];
+    summary: string;
+  };
+};
+
 export type RollingMetricPoint = {
   as_of: string;
   window: string;

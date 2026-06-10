@@ -2,7 +2,7 @@
 type: synthesis
 status: active
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-06-09
 sources:
   - "[[Product Vision Brief]]"
 tags:
@@ -15,7 +15,26 @@ tags:
 
 ## Short Answer
 
-Build Quant Lab in four slices: backtest cockpit, strategy comparison, stress testing, then research memos. Keep MVP 1 narrow enough to ship but serious enough to show risk, costs, benchmark, drawdown, and AI critique.
+Quant Lab has passed the core portfolio-project threshold: backtest cockpit, strategy comparison, robustness lab, diagnostics, and Markdown research exports are implemented. Next work should refine presentation and reliability instead of expanding scope.
+
+## Current Portfolio Status
+
+Implemented:
+
+- Backtest cockpit.
+- Strategy comparison and variants.
+- Parameter sweeps and heatmaps.
+- [[Robustness Lab]] for cost, start-date, and parameter sensitivity.
+- Deterministic quant review, OOS, rolling metrics, regimes, data reliability, provenance, and bootstrap stress.
+- Markdown tear sheet, wiki summary, and open question capture.
+- README screenshot, feature matrix, known limits, and smoke verification.
+
+Recommended next phase:
+
+- Polish UI copy and spacing.
+- Add 2-3 curated demo experiments.
+- Improve README narrative and screenshots.
+- Keep tests green with `python -m pytest`, `pnpm.cmd build`, and `pnpm.cmd smoke:frontend`.
 
 ## MVP 1: Backtest Cockpit
 
@@ -61,6 +80,8 @@ Example comparison:
 
 ## MVP 3: Stress Testing
 
+Status: partially implemented through [[Robustness Lab]] and diagnostics.
+
 Required:
 
 - Cost sensitivity.
@@ -79,6 +100,8 @@ Risk checks:
 - High turnover destroys net performance.
 
 ## MVP 4: Research Memos
+
+Status: partially implemented through Markdown tear sheets and wiki experiment summaries.
 
 Required:
 
@@ -110,3 +133,4 @@ Prefer one honest backtest workflow over many half-supported indicators. Product
 - [[Product Vision Brief]]
 - [[Research Cockpit UX]]
 - [[Product Architecture]]
+- [[Robustness Lab]]

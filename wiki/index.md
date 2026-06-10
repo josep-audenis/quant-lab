@@ -2,7 +2,7 @@
 type: index
 status: active
 created: 2026-05-28
-updated: 2026-05-29
+updated: 2026-06-09
 sources: []
 tags:
   - quant-lab
@@ -17,6 +17,8 @@ Persistent LLM-maintained knowledge base for `quant-lab`.
 
 - [[Quant Lab Overview]] - Current synthesis of repo purpose, research goals, and knowledge base scope.
 - [[MVP Roadmap]] - Build sequence from backtest cockpit to research memos.
+- [[Robustness Lab]] - Current robustness feature slice and portfolio readiness notes.
+- [[In-App Docs Tab]] - Reviewer-focused documentation now available inside web app.
 - [[Product Architecture]] - Frontend/backend/data model blueprint.
 - [[Experiment Creation Contract]] - Required fields for creating, editing, importing, and exporting experiments.
 - [[Research Cockpit UX]] - Main app experience and visual direction.
@@ -31,6 +33,8 @@ Persistent LLM-maintained knowledge base for `quant-lab`.
 - [[Product Architecture]] - Frontend/backend/data model blueprint.
 - [[Experiment Creation Contract]] - Required fields for experiment creation and JSON exchange.
 - [[Research Cockpit UX]] - Dashboard, workspace, result views, AI assistant, and visual style.
+- [[Robustness Lab]] - Cost, start-date, and parameter sensitivity workflow.
+- [[In-App Docs Tab]] - In-app product docs and reviewer guide.
 
 ## Entities
 
@@ -47,6 +51,8 @@ Persistent LLM-maintained knowledge base for `quant-lab`.
 - [[Product Architecture]] - System structure and domain model.
 - [[Experiment Creation Contract]] - Form/API contract for experiment JSON files.
 - [[Research Cockpit UX]] - Interface model for lab-style strategy research.
+- [[Robustness Lab]] - Implemented robustness lab and next refinement limits.
+- [[In-App Docs Tab]] - Implemented Docs tab and current content model.
 
 ## Questions
 

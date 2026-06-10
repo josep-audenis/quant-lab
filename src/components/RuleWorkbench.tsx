@@ -4,9 +4,10 @@ import type { ExperimentSummary, SweepResult } from "../api/experiments";
 import { RuleBuilder, type Block } from "./RuleBuilder";
 import { ResultsPanel } from "./ResultsPanel";
 import { ExperimentDetail } from "./workbench/ExperimentDetail";
+import { RobustnessPanel } from "./workbench/RobustnessPanel";
 import { SweepPanel } from "./workbench/SweepPanel";
 
-type RuleWorkbenchMode = "view" | "setup" | "rules" | "results" | "sweep";
+type RuleWorkbenchMode = "view" | "setup" | "rules" | "results" | "sweep" | "robustness";
 
 type RuleWorkbenchProps = {
   experiment: ExperimentSummary;
@@ -168,6 +169,13 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onExpor
             Sweep
           </button>
 
+          <button
+            className={`btn ${mode === "robustness" ? "active-tab" : ""}`}
+            onClick={() => setMode("robustness")}
+          >
+            Robustness
+          </button>
+
           <div className="action-sep" />
 
           <button className="btn danger" onClick={() => onDelete(draft)}>
@@ -183,7 +191,9 @@ export function RuleWorkbench({ experiment, onClose, onDelete, onExport, onExpor
         </div>
       )}
 
-      {mode === "sweep" ? (
+      {mode === "robustness" ? (
+        <RobustnessPanel experiment={draft} />
+      ) : mode === "sweep" ? (
         <SweepPanel experiment={draft} result={sweepResult} onResult={setSweepResult} onSaveVariant={onSaveVariant} />
       ) : mode === "results" && draft.result ? (
         <ResultsPanel

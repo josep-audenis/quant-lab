@@ -2,7 +2,7 @@
 type: log
 status: active
 created: 2026-05-28
-updated: 2026-05-29
+updated: 2026-06-09
 sources: []
 tags:
   - quant-lab
@@ -39,6 +39,23 @@ Append-only timeline. Keep entry headings parseable:
 - Documented supported blocks, validation rules, and interpreter output.
 
 ## [2026-06-09] query | Experiment Summary: Priority 3 smoke
+
+- Wrote generated experiment summary page.
+- Updated wiki index.
+
+## [2026-06-09] query | Robustness Lab Portfolio Slice
+
+- Added Robustness Lab synthesis.
+- Updated wiki index, overview, and roadmap for current implemented state.
+- Documented latest backend/frontend robustness workflow and verification posture.
+
+## [2026-06-09] query | In-App Docs Tab
+
+- Added in-app Docs tab synthesis.
+- Updated wiki index.
+- Documented frontend tab state, Docs screen, Data placeholder, and docs styles.
+
+## [2026-06-10] query | Experiment Summary: Priority 3 smoke
 
 - Wrote generated experiment summary page.
 - Updated wiki index.

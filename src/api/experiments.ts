@@ -1,4 +1,4 @@
-import type { DraftExperimentPayload, ExperimentBlueprint, ExperimentsResponse, ExperimentSummary, SweepResult } from "./types";
+import type { DraftExperimentPayload, ExperimentBlueprint, ExperimentsResponse, ExperimentSummary, RobustnessReport, SweepResult } from "./types";
 export type * from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8011";
@@ -223,6 +223,15 @@ export async function getExperimentChanges(id: string, baseId: string): Promise<
     throw new Error(await errorMessage(response, "Failed to load changes"));
   }
   return response.json();
+}
+
+export async function getRobustnessReport(id: string): Promise<RobustnessReport> {
+  const response = await fetch(`${API_BASE_URL}/experiments/${encodeURIComponent(id)}/robustness`);
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to load robustness report"));
+  }
+  const data = await response.json();
+  return data.robustness;
 }
 
 async function errorMessage(response: Response, fallback: string) {

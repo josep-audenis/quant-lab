@@ -27,6 +27,7 @@ Agent-readable documentation map for `quant-lab`. Start here before code edits.
 - [[API Reference]] - HTTP endpoints, payload shapes, side effects.
 - [[Data Model]] - Experiment, BacktestConfig, StrategyProgram, BacktestResult, metrics.
 - [[Strategy Engine]] - strategy programs, simulation, metrics, risk, enrichment.
+- Robustness Lab lives in `backend/quant_lab/robustness.py` and `src/components/workbench/RobustnessPanel.tsx`; API documented in [[API Reference]].
 
 ## Workflows
 
